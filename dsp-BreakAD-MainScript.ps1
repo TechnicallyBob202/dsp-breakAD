@@ -33,6 +33,37 @@ $ErrorActionPreference = "Continue"
 
 $Script:ScriptPath = $PSScriptRoot
 $Script:ModulesPath = Join-Path $ScriptPath "modules"
+$Script:LogsPath = Join-Path $ScriptPath "logs"
+
+# Create logs directory if it doesn't exist
+if (-not (Test-Path $Script:LogsPath)) {
+    New-Item -ItemType Directory -Path $Script:LogsPath -Force | Out-Null
+}
+
+# Setup logging
+$Script:LogFile = Join-Path $Script:LogsPath "dsp-BreakAD-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+
+function Write-Log {
+    param(
+        [string]$Message,
+        [ValidateSet('INFO', 'SUCCESS', 'WARNING', 'ERROR')]
+        [string]$Level = 'INFO'
+    )
+    
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logMessage = "[$timestamp] [$Level] $Message"
+    
+    # Write to console with color
+    switch ($Level) {
+        'SUCCESS' { Write-Host $logMessage -ForegroundColor Green }
+        'WARNING' { Write-Host $logMessage -ForegroundColor Yellow }
+        'ERROR' { Write-Host $logMessage -ForegroundColor Red }
+        default { Write-Host $logMessage }
+    }
+    
+    # Write to log file
+    Add-Content -Path $Script:LogFile -Value $logMessage
+}
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
@@ -40,12 +71,17 @@ Write-Host "dsp-BreakAD - Security Misconfiguration" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
+Write-Log "=== dsp-BreakAD Execution Started ===" -Level INFO
+Write-Log "Script: $($Script:ScriptPath)" -Level INFO
+Write-Log "Log File: $($Script:LogFile)" -Level INFO
+Write-Log "" -Level INFO
+
 ################################################################################
 # PREFLIGHT: ENVIRONMENT DISCOVERY
 ################################################################################
 
-Write-Host "PHASE 1: Environment Discovery" -ForegroundColor Yellow
-Write-Host ""
+Write-Log "PHASE 1: Environment Discovery" -Level INFO
+Write-Log "" -Level INFO
 
 if (-not $SkipPreflight) {
     # Check admin rights
@@ -54,33 +90,33 @@ if (-not $SkipPreflight) {
     $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     
     if (-not $isAdmin) {
-        Write-Host "ERROR: Administrator privileges required" -ForegroundColor Red
+        Write-Log "ERROR: Administrator privileges required" -Level ERROR
         exit 1
     }
-    Write-Host "  [+] Administrator rights verified" -ForegroundColor Green
+    Write-Log "Administrator rights verified" -Level SUCCESS
     
     # Check PowerShell version
     if ($PSVersionTable.PSVersion.Major -lt 5) {
-        Write-Host "ERROR: PowerShell 5.1+ required" -ForegroundColor Red
+        Write-Log "ERROR: PowerShell 5.1+ required" -Level ERROR
         exit 1
     }
-    Write-Host "  [+] PowerShell version: $($PSVersionTable.PSVersion)" -ForegroundColor Green
+    Write-Log "PowerShell version: $($PSVersionTable.PSVersion)" -Level SUCCESS
     
     # Import AD module
     try {
         Import-Module ActiveDirectory -ErrorAction Stop | Out-Null
-        Write-Host "  [+] ActiveDirectory module loaded" -ForegroundColor Green
+        Write-Log "ActiveDirectory module loaded" -Level SUCCESS
     }
     catch {
-        Write-Host "ERROR: Failed to load ActiveDirectory module" -ForegroundColor Red
+        Write-Log "ERROR: Failed to load ActiveDirectory module: $_" -Level ERROR
         exit 1
     }
 }
 
-Write-Host ""
+Write-Log "" -Level INFO
 
 # Discover domain and DC info
-Write-Host "Discovering domain and domain controllers..." -ForegroundColor Yellow
+Write-Log "Discovering domain and domain controllers..." -Level INFO
 
 try {
     $domain = Get-ADDomain -ErrorAction Stop
@@ -93,18 +129,18 @@ try {
         $primaryDC = $dcs
     }
     
-    Write-Host "  [+] Domain: $($domain.Name)" -ForegroundColor Green
-    Write-Host "  [+] NetBIOS: $($domain.NetBIOSName)" -ForegroundColor Green
-    Write-Host "  [+] Primary DC: $($primaryDC.HostName)" -ForegroundColor Green
+    Write-Log "Domain: $($domain.Name)" -Level SUCCESS
+    Write-Log "NetBIOS: $($domain.NetBIOSName)" -Level SUCCESS
+    Write-Log "Primary DC: $($primaryDC.HostName)" -Level SUCCESS
 }
 catch {
-    Write-Host "ERROR: Failed to discover domain information: $_" -ForegroundColor Red
+    Write-Log "ERROR: Failed to discover domain information: $_" -Level ERROR
     exit 1
 }
 
-Write-Host ""
-Write-Host "Preflight checks complete - ready to apply misconfigurations" -ForegroundColor Green
-Write-Host ""
+Write-Log "" -Level INFO
+Write-Log "Preflight checks complete - ready to apply misconfigurations" -Level SUCCESS
+Write-Log "" -Level INFO
 
 ################################################################################
 # BUILD ENVIRONMENT OBJECT
@@ -120,8 +156,8 @@ $Environment = @{
 # DISCOVER AND LOAD MODULES
 ################################################################################
 
-Write-Host "PHASE 2: Loading Modules" -ForegroundColor Yellow
-Write-Host ""
+Write-Log "PHASE 2: Loading Modules" -Level INFO
+Write-Log "" -Level INFO
 
 $modulesPath = Join-Path $Script:ModulesPath "*.psm1"
 $moduleFiles = Get-ChildItem -Path $modulesPath -ErrorAction SilentlyContinue | 
@@ -129,29 +165,29 @@ $moduleFiles = Get-ChildItem -Path $modulesPath -ErrorAction SilentlyContinue |
     Sort-Object Name
 
 if ($moduleFiles.Count -eq 0) {
-    Write-Host "ERROR: No modules found in $Script:ModulesPath" -ForegroundColor Red
+    Write-Log "ERROR: No modules found in $($Script:ModulesPath)" -Level ERROR
     exit 1
 }
 
-Write-Host "Found $($moduleFiles.Count) module(s):" -ForegroundColor Cyan
+Write-Log "Found $($moduleFiles.Count) module(s)" -Level INFO
 
 $loadedModules = @()
 foreach ($moduleFile in $moduleFiles) {
     try {
         Import-Module $moduleFile.FullName -Force -ErrorAction Stop | Out-Null
         $moduleName = $moduleFile.BaseName
-        Write-Host "  [+] $moduleName" -ForegroundColor Green
+        Write-Log "Loaded: $moduleName" -Level SUCCESS
         $loadedModules += $moduleName
     }
     catch {
-        Write-Host "  [X] Failed to load $($moduleFile.BaseName): $_" -ForegroundColor Red
+        Write-Log "Failed to load $($moduleFile.BaseName): $_" -Level ERROR
     }
 }
 
-Write-Host ""
+Write-Log "" -Level INFO
 
 if ($loadedModules.Count -eq 0) {
-    Write-Host "ERROR: No modules loaded successfully" -ForegroundColor Red
+    Write-Log "ERROR: No modules loaded successfully" -Level ERROR
     exit 1
 }
 
@@ -159,8 +195,8 @@ if ($loadedModules.Count -eq 0) {
 # EXECUTE MODULES
 ################################################################################
 
-Write-Host "PHASE 3: Executing Modules" -ForegroundColor Yellow
-Write-Host ""
+Write-Log "PHASE 3: Executing Modules" -Level INFO
+Write-Log "" -Level INFO
 
 $executedCount = 0
 $failedCount = 0
@@ -173,18 +209,19 @@ foreach ($moduleName in $loadedModules) {
     
     if (Get-Command -Name $functionName -ErrorAction SilentlyContinue) {
         try {
-            Write-Host "Executing $functionName..." -ForegroundColor Cyan
+            Write-Log "Executing $functionName..." -Level INFO
             & $functionName -Environment $Environment
+            Write-Log "$functionName completed successfully" -Level SUCCESS
             $executedCount++
         }
         catch {
-            Write-Host "ERROR in $functionName : $_" -ForegroundColor Red
+            Write-Log "ERROR in $functionName : $_" -Level ERROR
             $failedCount++
         }
-        Write-Host ""
+        Write-Log "" -Level INFO
     }
     else {
-        Write-Host "ERROR: Function $functionName not found in $moduleName" -ForegroundColor Red
+        Write-Log "ERROR: Function $functionName not found in $moduleName" -Level ERROR
         $failedCount++
     }
 }
@@ -193,12 +230,12 @@ foreach ($moduleName in $loadedModules) {
 # SUMMARY
 ################################################################################
 
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Execution Complete" -ForegroundColor Cyan
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "Executed: $executedCount modules" -ForegroundColor Green
+Write-Log "========================================" -Level INFO
+Write-Log "Execution Complete" -Level INFO
+Write-Log "========================================" -Level INFO
+Write-Log "Executed: $executedCount modules" -Level SUCCESS
 if ($failedCount -gt 0) {
-    Write-Host "Failed: $failedCount modules" -ForegroundColor Red
+    Write-Log "Failed: $failedCount modules" -Level WARNING
 }
-Write-Host ""
+Write-Log "Log saved to: $($Script:LogFile)" -Level INFO
+Write-Log "" -Level INFO
