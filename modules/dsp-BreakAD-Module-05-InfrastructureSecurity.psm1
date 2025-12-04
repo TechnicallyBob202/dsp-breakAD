@@ -86,8 +86,8 @@ function Invoke-ModuleInfrastructureSecurity {
     # Modify schema admins and enterprise admins
     Write-Host "Modifying schema and enterprise admin groups..." -ForegroundColor Yellow
     try {
-        $badActor100 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "100" } -ErrorAction SilentlyContinue
-        $badActor101 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "101" } -ErrorAction SilentlyContinue
+        $badActor100 = $badActorName100 = "BdActr$domainNetBIOS" + "100"; Get-ADUser -Filter { SamAccountName -eq $badActorName100 } -ErrorAction SilentlyContinue
+        $badActor101 = $badActorName101 = "BdActr$domainNetBIOS" + "101"; Get-ADUser -Filter { SamAccountName -eq $badActorName101 } -ErrorAction SilentlyContinue
         
         $schemaAdmins = Get-ADGroup -Filter { Name -eq "Schema Admins" } -ErrorAction SilentlyContinue
         $enterpriseAdmins = Get-ADGroup -Filter { Name -eq "Enterprise Admins" } -ErrorAction SilentlyContinue
@@ -119,7 +119,7 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Host "Configuring dangerous replication settings..." -ForegroundColor Yellow
     try {
         # Find a bad actor to assign dangerous perms
-        $badActor102 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "102" } -ErrorAction SilentlyContinue
+        $badActor102 = $badActorName102 = "BdActr$domainNetBIOS" + "102"; Get-ADUser -Filter { SamAccountName -eq $badActorName102 } -ErrorAction SilentlyContinue
         
         if ($badActor102) {
             try {
@@ -150,7 +150,7 @@ function Invoke-ModuleInfrastructureSecurity {
     # Configure DomainDNSZones permissions
     Write-Host "Configuring DomainDNSZones permissions..." -ForegroundColor Yellow
     try {
-        $badActor103 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "103" } -ErrorAction SilentlyContinue
+        $badActor103 = $badActorName103 = "BdActr$domainNetBIOS" + "103"; Get-ADUser -Filter { SamAccountName -eq $badActorName103 } -ErrorAction SilentlyContinue
         
         if ($badActor103) {
             try {
@@ -180,7 +180,7 @@ function Invoke-ModuleInfrastructureSecurity {
     # Modify schema permissions
     Write-Host "Modifying schema permissions..." -ForegroundColor Yellow
     try {
-        $badActor104 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "104" } -ErrorAction SilentlyContinue
+        $badActor104 = $badActorName104 = "BdActr$domainNetBIOS" + "104"; Get-ADUser -Filter { SamAccountName -eq $badActorName104 } -ErrorAction SilentlyContinue
         
         if ($badActor104) {
             try {
@@ -213,7 +213,7 @@ function Invoke-ModuleInfrastructureSecurity {
     # Modify configuration partition permissions
     Write-Host "Modifying configuration partition permissions..." -ForegroundColor Yellow
     try {
-        $badActor105 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "105" } -ErrorAction SilentlyContinue
+        $badActor105 = $badActorName105 = "BdActr$domainNetBIOS" + "105"; Get-ADUser -Filter { SamAccountName -eq $badActorName105 } -ErrorAction SilentlyContinue
         
         if ($badActor105) {
             try {
