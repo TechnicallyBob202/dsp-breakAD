@@ -2,16 +2,16 @@
 ##
 ## dsp-BreakAD-MainScript.ps1
 ##
-## Main orchestration script for breaking Active Directory configurations
-## 
-## Executes 8 modules in sequence that apply security misconfigurations
-## to demonstrate bad AD practices and security risks.
+## Main orchestration script for dsp-BreakAD security misconfiguration system
 ##
-## Linear flow:
-## 1. Preflight checks (environment validation)
-## 2. Module discovery (load modules from modules folder)
-## 3. Sequential execution (run modules 01-08 in order)
+## Applies intentional security misconfigurations to AD for demonstration:
+## - Creates "bad actors" with dangerous permissions
+## - Configures delegation abuse
+## - Sets weak policies
+## - Modifies infrastructure security settings
+## - Simulates real-world security issues for DSP to detect and recover
 ##
+## Author: Bob Lyons
 ## Version: 1.0.0-20251204
 ##
 ################################################################################
@@ -20,13 +20,9 @@
 #Requires -Modules ActiveDirectory
 #Requires -RunAsAdministrator
 
-[CmdletBinding()]
 param(
     [Parameter(Mandatory=$false)]
-    [string]$ModulesPath,
-    
-    [Parameter(Mandatory=$false)]
-    [string]$LogPath
+    [switch]$SkipPreflight
 )
 
 $ErrorActionPreference = "Continue"
@@ -36,310 +32,173 @@ $ErrorActionPreference = "Continue"
 ################################################################################
 
 $Script:ScriptPath = $PSScriptRoot
-$Script:ModulesFolder = if ($ModulesPath) { 
-    $ModulesPath 
-} 
-else { 
-    Join-Path $ScriptPath "modules"
+$Script:ModulesPath = Join-Path $ScriptPath "modules"
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "dsp-BreakAD - Security Misconfiguration" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+
+################################################################################
+# PREFLIGHT: ENVIRONMENT DISCOVERY
+################################################################################
+
+Write-Host "PHASE 1: Environment Discovery" -ForegroundColor Yellow
+Write-Host ""
+
+if (-not $SkipPreflight) {
+    # Check admin rights
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    
+    if (-not $isAdmin) {
+        Write-Host "ERROR: Administrator privileges required" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  [+] Administrator rights verified" -ForegroundColor Green
+    
+    # Check PowerShell version
+    if ($PSVersionTable.PSVersion.Major -lt 5) {
+        Write-Host "ERROR: PowerShell 5.1+ required" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  [+] PowerShell version: $($PSVersionTable.PSVersion)" -ForegroundColor Green
+    
+    # Import AD module
+    try {
+        Import-Module ActiveDirectory -ErrorAction Stop | Out-Null
+        Write-Host "  [+] ActiveDirectory module loaded" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "ERROR: Failed to load ActiveDirectory module" -ForegroundColor Red
+        exit 1
+    }
 }
 
-if (-not (Test-Path $Script:ModulesFolder)) {
-    Write-Host "ERROR: Modules folder not found at $($Script:ModulesFolder)" -ForegroundColor Red
+Write-Host ""
+
+# Discover domain and DC info
+Write-Host "Discovering domain and domain controllers..." -ForegroundColor Yellow
+
+try {
+    $domain = Get-ADDomain -ErrorAction Stop
+    $dcs = Get-ADDomainController -Filter * -ErrorAction Stop
+    
+    if ($dcs -is [array]) {
+        $primaryDC = $dcs[0]
+    }
+    else {
+        $primaryDC = $dcs
+    }
+    
+    Write-Host "  [+] Domain: $($domain.Name)" -ForegroundColor Green
+    Write-Host "  [+] NetBIOS: $($domain.NetBIOSName)" -ForegroundColor Green
+    Write-Host "  [+] Primary DC: $($primaryDC.HostName)" -ForegroundColor Green
+}
+catch {
+    Write-Host "ERROR: Failed to discover domain information: $_" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host ""
+Write-Host "Preflight checks complete - ready to apply misconfigurations" -ForegroundColor Green
+Write-Host ""
+
+################################################################################
+# BUILD ENVIRONMENT OBJECT
+################################################################################
+# This is passed to all modules
+
+$Environment = @{
+    Domain = $domain
+    DomainController = $primaryDC
+}
+
+################################################################################
+# DISCOVER AND LOAD MODULES
+################################################################################
+
+Write-Host "PHASE 2: Loading Modules" -ForegroundColor Yellow
+Write-Host ""
+
+$modulesPath = Join-Path $Script:ModulesPath "*.psm1"
+$moduleFiles = Get-ChildItem -Path $modulesPath -ErrorAction SilentlyContinue | 
+    Where-Object { $_.Name -match "dsp-BreakAD-Module-\d+" } | 
+    Sort-Object Name
+
+if ($moduleFiles.Count -eq 0) {
+    Write-Host "ERROR: No modules found in $Script:ModulesPath" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "Found $($moduleFiles.Count) module(s):" -ForegroundColor Cyan
+
+$loadedModules = @()
+foreach ($moduleFile in $moduleFiles) {
+    try {
+        Import-Module $moduleFile.FullName -Force -ErrorAction Stop | Out-Null
+        $moduleName = $moduleFile.BaseName
+        Write-Host "  [+] $moduleName" -ForegroundColor Green
+        $loadedModules += $moduleName
+    }
+    catch {
+        Write-Host "  [X] Failed to load $($moduleFile.BaseName): $_" -ForegroundColor Red
+    }
+}
+
+Write-Host ""
+
+if ($loadedModules.Count -eq 0) {
+    Write-Host "ERROR: No modules loaded successfully" -ForegroundColor Red
     exit 1
 }
 
 ################################################################################
-# COLORS
+# EXECUTE MODULES
 ################################################################################
 
-$Colors = @{
-    Header = 'Cyan'
-    Section = 'Green'
-    Success = 'Green'
-    Warning = 'Yellow'
-    Error = 'Red'
-    Info = 'White'
-}
+Write-Host "PHASE 3: Executing Modules" -ForegroundColor Yellow
+Write-Host ""
 
-################################################################################
-# OUTPUT FUNCTIONS
-################################################################################
+$executedCount = 0
+$failedCount = 0
 
-function Write-Status {
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$Message,
-        
-        [Parameter(Mandatory=$false)]
-        [ValidateSet('Info', 'Success', 'Warning', 'Error')]
-        [string]$Level = 'Info'
-    )
+foreach ($moduleName in $loadedModules) {
+    # Extract function name from module name
+    # dsp-BreakAD-Module-04-AccountSecurity → Invoke-ModuleAccountSecurity
+    $functionName = $moduleName -replace "^dsp-BreakAD-Module-\d+-", ""
+    $functionName = "Invoke-Module" + $functionName
     
-    $color = $Colors[$Level]
-    $prefix = switch ($Level) {
-        'Info' { '[*]' }
-        'Success' { '[+]' }
-        'Warning' { '[!]' }
-        'Error' { '[X]' }
-    }
-    
-    Write-Host "$prefix $Message" -ForegroundColor $color
-}
-
-function Write-Header {
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$Text
-    )
-    
-    Write-Host ""
-    Write-Host "================================================================================" -ForegroundColor $Colors.Header
-    Write-Host $Text -ForegroundColor $Colors.Header
-    Write-Host "================================================================================" -ForegroundColor $Colors.Header
-    Write-Host ""
-}
-
-################################################################################
-# PREFLIGHT CHECKS
-################################################################################
-
-function Test-PreflightEnvironment {
-    Write-Header "PREFLIGHT CHECKS"
-    
-    $preflight_ok = $true
-    
-    # Check PowerShell version
-    Write-Status "Checking PowerShell version..." -Level Info
-    if ($PSVersionTable.PSVersion.Major -lt 5) {
-        Write-Status "PowerShell 5.1+ required (you have $($PSVersionTable.PSVersion))" -Level Error
-        $preflight_ok = $false
-    } else {
-        Write-Status "PowerShell version: $($PSVersionTable.PSVersion)" -Level Success
-    }
-    
-    # Check AD module
-    Write-Status "Checking Active Directory module..." -Level Info
-    if (-not (Get-Module -ListAvailable -Name ActiveDirectory)) {
-        Write-Status "Active Directory module not available" -Level Error
-        $preflight_ok = $false
-    } else {
-        Import-Module ActiveDirectory -ErrorAction SilentlyContinue
-        Write-Status "Active Directory module loaded" -Level Success
-    }
-    
-    # Check admin rights
-    Write-Status "Checking administrator privileges..." -Level Info
-    $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-    if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        Write-Status "Administrator privileges required" -Level Error
-        $preflight_ok = $false
-    } else {
-        Write-Status "Running as administrator" -Level Success
-    }
-    
-    # Discover domain
-    Write-Status "Discovering domain information..." -Level Info
-    try {
-        $domain = Get-ADDomain -Current LocalComputer -ErrorAction Stop
-        Write-Status "Domain: $($domain.Name)" -Level Success
-        Write-Status "Forest: $((Get-ADForest -Current LocalComputer).Name)" -Level Success
-        
-        $dc = Get-ADDomainController -DomainName $domain.Name -Discover -ErrorAction Stop
-        Write-Status "Domain Controller: $($dc.HostName)" -Level Success
-    }
-    catch {
-        Write-Status "Failed to discover domain: $_" -Level Error
-        $preflight_ok = $false
-    }
-    
-    Write-Host ""
-    
-    if (-not $preflight_ok) {
-        Write-Status "PREFLIGHT FAILED - aborting" -Level Error
-        exit 1
-    }
-    
-    Write-Status "PREFLIGHT CHECKS PASSED" -Level Success
-    Write-Host ""
-    
-    return @{
-        Domain = $domain
-        DomainController = $dc
-    }
-}
-
-################################################################################
-# MODULE DISCOVERY & LOADING
-################################################################################
-
-function Get-BreakADModules {
-    param(
-        [Parameter(Mandatory=$true)]
-        [string]$ModulesFolder
-    )
-    
-    Write-Header "DISCOVERING MODULES"
-    
-    $modules = @()
-    
-    # Find all module files numbered 01-08
-    $moduleFiles = Get-ChildItem -Path $ModulesFolder -Filter "*.psm1" | 
-        Where-Object { $_.Name -match 'dsp-BreakAD-Module-(\d+)' } |
-        Sort-Object { 
-            [int]($_.Name -replace '.*-(\d+).*', '$1')
+    if (Get-Command -Name $functionName -ErrorAction SilentlyContinue) {
+        try {
+            Write-Host "Executing $functionName..." -ForegroundColor Cyan
+            & $functionName -Environment $Environment
+            $executedCount++
         }
-    
-    if ($moduleFiles.Count -eq 0) {
-        Write-Status "No modules found in $ModulesFolder" -Level Warning
-        return $modules
-    }
-    
-    foreach ($file in $moduleFiles) {
-        # Extract module number
-        if ($file.Name -match 'dsp-BreakAD-Module-(\d+)') {
-            $moduleNum = [int]$matches[1]
-            
-            # Extract function name from filename
-            # dsp-BreakAD-Module-01-BadActors.psm1 -> Invoke-BadActors
-            if ($file.Name -match 'dsp-BreakAD-Module-\d+-(.+)\.psm1') {
-                $functionName = 'Invoke-' + ($matches[1] -replace '-', '')
-                
-                $modules += @{
-                    Number = $moduleNum
-                    Path = $file.FullName
-                    Name = $file.BaseName
-                    FunctionName = $functionName
-                    FileName = $file.Name
-                }
-                
-                Write-Status "Found module $moduleNum`: $($file.Name)" -Level Info
-            }
+        catch {
+            Write-Host "ERROR in $functionName : $_" -ForegroundColor Red
+            $failedCount++
         }
+        Write-Host ""
     }
-    
-    Write-Host ""
-    Write-Status "Total modules discovered: $($modules.Count)" -Level Success
-    Write-Host ""
-    
-    return $modules
-}
-
-################################################################################
-# MODULE EXECUTION
-################################################################################
-
-function Invoke-BreakADModule {
-    param(
-        [Parameter(Mandatory=$true)]
-        [hashtable]$Module,
-        
-        [Parameter(Mandatory=$true)]
-        [hashtable]$Environment
-    )
-    
-    Write-Host ""
-    Write-Host "────────────────────────────────────────────────────────────────────────────────" -ForegroundColor $Colors.Section
-    Write-Status "Executing Module $($Module.Number): $($Module.Name)" -Level Info
-    Write-Host "────────────────────────────────────────────────────────────────────────────────" -ForegroundColor $Colors.Section
-    Write-Host ""
-    
-    try {
-        # Remove any previously loaded version
-        Remove-Module $Module.Name -Force -ErrorAction SilentlyContinue
-        
-        # Import the module
-        Import-Module $Module.Path -Force -ErrorAction Stop
-        
-        # Get the function
-        $function = Get-Command $Module.FunctionName -ErrorAction Stop
-        
-        if (-not $function) {
-            Write-Status "Function $($Module.FunctionName) not found in module" -Level Error
-            return $false
-        }
-        
-        # Execute the function
-        & $Module.FunctionName -Environment $Environment
-        
-        Write-Status "Module $($Module.Number) completed successfully" -Level Success
-        
-        # Clean up
-        Remove-Module $Module.Name -Force -ErrorAction SilentlyContinue
-        
-        return $true
-    }
-    catch {
-        Write-Status "Module $($Module.Number) failed: $_" -Level Error
-        Write-Host $_.Exception.Message -ForegroundColor $Colors.Error
-        return $false
+    else {
+        Write-Host "ERROR: Function $functionName not found in $moduleName" -ForegroundColor Red
+        $failedCount++
     }
 }
 
 ################################################################################
-# MAIN EXECUTION
+# SUMMARY
 ################################################################################
 
-function Main {
-    Clear-Host
-    
-    Write-Host ""
-    Write-Host "╔════════════════════════════════════════════════════════════════════════════════╗" -ForegroundColor $Colors.Header
-    Write-Host "║                     dsp-BreakAD: AD Misconfiguration Demo                     ║" -ForegroundColor $Colors.Header
-    Write-Host "║                                                                                ║" -ForegroundColor $Colors.Header
-    Write-Host "║  This script applies security misconfigurations to Active Directory to        ║" -ForegroundColor $Colors.Header
-    Write-Host "║  demonstrate common AD security risks and bad practices.                      ║" -ForegroundColor $Colors.Header
-    Write-Host "║                                                                                ║" -ForegroundColor $Colors.Header
-    Write-Host "║  Version: 1.0.0-20251204                                                      ║" -ForegroundColor $Colors.Header
-    Write-Host "╚════════════════════════════════════════════════════════════════════════════════╝" -ForegroundColor $Colors.Header
-    Write-Host ""
-    
-    # Preflight checks
-    $environment = Test-PreflightEnvironment
-    
-    # Discover modules
-    $modules = Get-BreakADModules -ModulesFolder $Script:ModulesFolder
-    
-    if ($modules.Count -eq 0) {
-        Write-Status "No modules found - nothing to execute" -Level Warning
-        exit 1
-    }
-    
-    # Execute modules in sequence
-    Write-Header "EXECUTING MODULES"
-    
-    $successCount = 0
-    $failureCount = 0
-    
-    foreach ($module in $modules) {
-        $result = Invoke-BreakADModule -Module $module -Environment $environment
-        
-        if ($result) {
-            $successCount++
-        } else {
-            $failureCount++
-        }
-        
-        # Pause between modules
-        Start-Sleep -Seconds 1
-    }
-    
-    # Summary
-    Write-Header "EXECUTION SUMMARY"
-    
-    Write-Status "Total modules: $($modules.Count)" -Level Info
-    Write-Status "Successful: $successCount" -Level Success
-    Write-Status "Failed: $failureCount" -Level $(if ($failureCount -gt 0) { 'Warning' } else { 'Success' })
-    
-    Write-Host ""
-    
-    if ($failureCount -eq 0) {
-        Write-Status "ALL MODULES COMPLETED SUCCESSFULLY" -Level Success
-    } else {
-        Write-Status "SOME MODULES FAILED - CHECK OUTPUT ABOVE" -Level Warning
-    }
-    
-    Write-Host ""
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Execution Complete" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "Executed: $executedCount modules" -ForegroundColor Green
+if ($failedCount -gt 0) {
+    Write-Host "Failed: $failedCount modules" -ForegroundColor Red
 }
-
-# Execute main
-Main
+Write-Host ""
