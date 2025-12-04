@@ -38,7 +38,7 @@ function Invoke-ModuleInfrastructureSecurity {
     
     $domainDN = $Environment.Domain.DistinguishedName
     $domainNetBIOS = $Environment.Domain.NetBIOSName
-    $rwdcFQDN = $Environment.DomainController.HostName
+    $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $Environment.Domain.PDCEmulator }
     
     Write-Host "" -ForegroundColor Cyan
     Write-Host "=== MODULE 05: Infrastructure Security ===" -ForegroundColor Cyan
