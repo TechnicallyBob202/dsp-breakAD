@@ -40,12 +40,12 @@ function Invoke-ModuleBadActors {
     # Ensure TEST OU exists
     $testOU = "OU=TEST,$domainDN"
     if (-not (Get-ADOrganizationalUnit -Filter { DistinguishedName -eq $testOU } -ErrorAction SilentlyContinue)) {
-        Write-Host "Creating TEST OU..." -ForegroundColor Cyan
+        Write-Log "Creating TEST OU..." -Level INFO
         New-ADOrganizationalUnit -Name "TEST" -Path $domainDN -ErrorAction SilentlyContinue
     }
     
-    Write-Host "Creating 200 Bad Actor accounts in TEST OU..." -ForegroundColor Cyan
-    Write-Host ""
+    Write-Log "Creating 200 Bad Actor accounts in TEST OU..." -Level INFO
+    Write-Log "" -Level INFO
     
     $successCount = 0
     $skipCount = 0
@@ -58,7 +58,7 @@ function Invoke-ModuleBadActors {
         $existing = Get-ADUser -Filter { SamAccountName -eq $samAccountName } -ErrorAction SilentlyContinue
         if ($existing) {
             $skipCount++
-            Write-Host "  [$($index + 1)/201] Skipping (already exists): $samAccountName" -ForegroundColor Yellow
+            Write-Log "  [$($index + 1)/201] Skipping (already exists): $samAccountName" -Level WARNING
             return
         }
         
@@ -119,18 +119,18 @@ function Invoke-ModuleBadActors {
                 -ErrorAction Stop
             
             $successCount++
-            Write-Host "  [$($index + 1)/201] Created: $samAccountName" -ForegroundColor Green
+            Write-Log "  [$($index + 1)/201] Created: $samAccountName" -Level SUCCESS
         }
         catch {
-            Write-Host "  [$($index + 1)/201] ERROR creating $samAccountName`: $_" -ForegroundColor Red
+            Write-Log "  [$($index + 1)/201] ERROR creating $samAccountName`: $_" -Level ERROR
         }
     }
     
-    Write-Host ""
-    Write-Host "Bad Actor accounts summary:" -ForegroundColor Cyan
-    Write-Host "  Created: $successCount" -ForegroundColor Green
-    Write-Host "  Skipped: $skipCount" -ForegroundColor Yellow
-    Write-Host ""
+    Write-Log "" -Level INFO
+    Write-Log "Bad Actor accounts summary:" -Level INFO
+    Write-Log "  Created: $successCount" -Level SUCCESS
+    Write-Log "  Skipped: $skipCount" -Level WARNING
+    Write-Log "" -Level INFO
 }
 
 Export-ModuleMember -Function Invoke-ModuleBadActors

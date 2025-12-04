@@ -53,11 +53,11 @@ function Invoke-ModuleADDelegations {
     $dcContainerDN = "CN=Domain Controllers,$domainDN"
     $testOU = "OU=TEST,$domainDN"
     
-    Write-Host "Configuring AD delegations and security misconfigurations..." -ForegroundColor Cyan
-    Write-Host ""
+    Write-Log "Configuring AD delegations and security misconfigurations..." -Level INFO
+    Write-Log "" -Level INFO
     
     # Enable Inheritance on AdminSDHolder
-    Write-Host "Enabling inheritance on AdminSDHolder..." -ForegroundColor Yellow
+    Write-Log "Enabling inheritance on AdminSDHolder..." -Level WARNING
     try {
         $adminSDHolderDN = "CN=AdminSDHolder,CN=System,$domainDN"
         $adminSDHolder = [ADSI]("LDAP://$rwdcFQDN/$adminSDHolderDN")
@@ -66,18 +66,18 @@ function Invoke-ModuleADDelegations {
         if ($dacl.get_AreAccessRulesProtected()) {
             $dacl.SetAccessRuleProtection($false, $true)  # Disable protection, preserve inherited ACEs
             $adminSDHolder.psbase.commitchanges()
-            Write-Host "  [+] Inheritance enabled on AdminSDHolder" -ForegroundColor Green
+            Write-Log "  [+] Inheritance enabled on AdminSDHolder" -Level SUCCESS
         } else {
-            Write-Host "  [!] Inheritance already enabled" -ForegroundColor Yellow
+            Write-Log "  [!] Inheritance already enabled" -Level WARNING
         }
     }
     catch {
-        Write-Host "  [X] Failed to enable inheritance: $_" -ForegroundColor Red
+        Write-Log "  [X] Failed to enable inheritance: $_" -Level ERROR
     }
-    Write-Host ""
+    Write-Log "" -Level INFO
     
     # Add non-admin to AdminSDHolder with Full Control
-    Write-Host "Adding non-admin user to AdminSDHolder with Full Control..." -ForegroundColor Yellow
+    Write-Log "Adding non-admin user to AdminSDHolder with Full Control..." -Level WARNING
     try {
         $badActor0 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`0" } -ErrorAction SilentlyContinue
         if ($badActor0) {
@@ -90,16 +90,16 @@ function Invoke-ModuleADDelegations {
             
             $adminSDHolder.psbase.objectSecurity.AddAccessRule($ace)
             $adminSDHolder.psbase.commitchanges()
-            Write-Host "  [+] Assigned Full Control on AdminSDHolder to BdActr$domainNetBIOS`0" -ForegroundColor Green
+            Write-Log "  [+] Assigned Full Control on AdminSDHolder to BdActr$domainNetBIOS`0" -Level SUCCESS
         }
     }
     catch {
-        Write-Host "  [X] Failed to add permissions to AdminSDHolder: $_" -ForegroundColor Red
+        Write-Log "  [X] Failed to add permissions to AdminSDHolder: $_" -Level ERROR
     }
-    Write-Host ""
+    Write-Log "" -Level INFO
     
     # Update Display Specifiers
-    Write-Host "Modifying display specifiers..." -ForegroundColor Yellow
+    Write-Log "Modifying display specifiers..." -Level WARNING
     try {
         foreach ($lcidCode in @("401", "409", "816")) {
             $displaySpecifierDN = "CN=user-Display,CN=$lcidCode,CN=DisplaySpecifiers,$forestConfigNCDN"
@@ -111,16 +111,16 @@ function Invoke-ModuleADDelegations {
             [int]$ADS_PROPERTY_APPEND = 3
             $displaySpecifier.PutEx($ADS_PROPERTY_APPEND, "adminContextMenu", @($newContextMenu))
             $displaySpecifier.SetInfo()
-            Write-Host "  [+] Added context menu entry to display specifier CN=$lcidCode" -ForegroundColor Green
+            Write-Log "  [+] Added context menu entry to display specifier CN=$lcidCode" -Level SUCCESS
         }
     }
     catch {
-        Write-Host "  [X] Failed to modify display specifiers: $_" -ForegroundColor Red
+        Write-Log "  [X] Failed to modify display specifiers: $_" -Level ERROR
     }
-    Write-Host ""
+    Write-Log "" -Level INFO
     
     # Update default permissions on User ObjectClass
-    Write-Host "Updating default permissions on User ObjectClass..." -ForegroundColor Yellow
+    Write-Log "Updating default permissions on User ObjectClass..." -Level WARNING
     try {
         $userObjectDN = "CN=User,$forestSchemaNCDN"
         $userObject = [ADSI]("LDAP://$forestSchemaFsmoFQDN/$userObjectDN")
@@ -131,18 +131,18 @@ function Invoke-ModuleADDelegations {
             $newDefaultSD = "$currentDefaultSD(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;WD)"
             $userObject.Put("defaultSecurityDescriptor", $newDefaultSD)
             $userObject.SetInfo()
-            Write-Host "  [+] Added Everyone with Full Control to User ObjectClass default permissions" -ForegroundColor Green
+            Write-Log "  [+] Added Everyone with Full Control to User ObjectClass default permissions" -Level SUCCESS
         } else {
-            Write-Host "  [!] ACE already present" -ForegroundColor Yellow
+            Write-Log "  [!] ACE already present" -Level WARNING
         }
     }
     catch {
-        Write-Host "  [X] Failed to update default permissions: $_" -ForegroundColor Red
+        Write-Log "  [X] Failed to update default permissions: $_" -Level ERROR
     }
-    Write-Host ""
+    Write-Log "" -Level INFO
     
     # Set non-admin as owner of DC computer account
-    Write-Host "Setting non-admin as owner of DC computer account..." -ForegroundColor Yellow
+    Write-Log "Setting non-admin as owner of DC computer account..." -Level WARNING
     try {
         $dcAccounts = Get-ADComputer -Filter { PrimaryGroupID -eq 516 -or PrimaryGroupID -eq 521 } -SearchBase $dcContainerDN -ErrorAction SilentlyContinue
         if ($dcAccounts.Count -gt 0) {
@@ -154,32 +154,32 @@ function Invoke-ModuleADDelegations {
                 $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor1.SID)
                 $dcObj.psbase.objectSecurity.SetOwner($badActorSID)
                 $dcObj.psbase.commitchanges()
-                Write-Host "  [+] Set BdActr$domainNetBIOS`1 as owner of $($randomDC.Name)" -ForegroundColor Green
+                Write-Log "  [+] Set BdActr$domainNetBIOS`1 as owner of $($randomDC.Name)" -Level SUCCESS
             }
         }
     }
     catch {
-        Write-Host "  [X] Failed to set DC owner: $_" -ForegroundColor Red
+        Write-Log "  [X] Failed to set DC owner: $_" -Level ERROR
     }
-    Write-Host ""
+    Write-Log "" -Level INFO
     
     # Enable built-in Guest account
-    Write-Host "Enabling built-in Guest account..." -ForegroundColor Yellow
+    Write-Log "Enabling built-in Guest account..." -Level WARNING
     try {
         $guestSID = "$domainSID-501"
         $guestAccount = Get-ADUser -Filter { SID -eq $guestSID } -ErrorAction SilentlyContinue
         if ($guestAccount) {
             Set-ADUser -Identity $guestAccount -Enabled $true
-            Write-Host "  [+] Enabled built-in Guest account" -ForegroundColor Green
+            Write-Log "  [+] Enabled built-in Guest account" -Level SUCCESS
         }
     }
     catch {
-        Write-Host "  [X] Failed to enable Guest account: $_" -ForegroundColor Red
+        Write-Log "  [X] Failed to enable Guest account: $_" -Level ERROR
     }
-    Write-Host ""
+    Write-Log "" -Level INFO
     
     # Set permissions for SERVER_TRUST_ACCOUNT on Domain NC
-    Write-Host "Setting permissions for SERVER_TRUST_ACCOUNT..." -ForegroundColor Yellow
+    Write-Log "Setting permissions for SERVER_TRUST_ACCOUNT..." -Level WARNING
     try {
         $domainObj = [ADSI]("LDAP://$rwdcFQDN/$domainDN")
         
@@ -193,7 +193,7 @@ function Invoke-ModuleADDelegations {
             $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSID, $aceRight, $aceType, $aceInheritance)
             $domainObj.psbase.objectSecurity.AddAccessRule($ace)
             $domainObj.psbase.commitchanges()
-            Write-Host "  [+] Assigned Full Control on Domain NC to BdActr$domainNetBIOS`7" -ForegroundColor Green
+            Write-Log "  [+] Assigned Full Control on Domain NC to BdActr$domainNetBIOS`7" -Level SUCCESS
         }
         
         # Full Control for Computer objects only
@@ -207,7 +207,7 @@ function Invoke-ModuleADDelegations {
             $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSID, $aceRight, $aceType, $aceInheritance, $computerSchemaGUID)
             $domainObj.psbase.objectSecurity.AddAccessRule($ace)
             $domainObj.psbase.commitchanges()
-            Write-Host "  [+] Assigned Full Control on Computer objects to BdActr$domainNetBIOS`8" -ForegroundColor Green
+            Write-Log "  [+] Assigned Full Control on Computer objects to BdActr$domainNetBIOS`8" -Level SUCCESS
         }
         
         # Read/Write userAccountControl on Computer objects
@@ -222,16 +222,16 @@ function Invoke-ModuleADDelegations {
             $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSID, $aceRight, $aceType, $userAccountControlGUID, $aceInheritance, $computerSchemaGUID)
             $domainObj.psbase.objectSecurity.AddAccessRule($ace)
             $domainObj.psbase.commitchanges()
-            Write-Host "  [+] Assigned Read/Write userAccountControl on Computer objects to BdActr$domainNetBIOS`9" -ForegroundColor Green
+            Write-Log "  [+] Assigned Read/Write userAccountControl on Computer objects to BdActr$domainNetBIOS`9" -Level SUCCESS
         }
     }
     catch {
-        Write-Host "  [X] Failed to set SERVER_TRUST_ACCOUNT permissions: $_" -ForegroundColor Red
+        Write-Log "  [X] Failed to set SERVER_TRUST_ACCOUNT permissions: $_" -Level ERROR
     }
-    Write-Host ""
+    Write-Log "" -Level INFO
     
     # Disable security flags on LAPS attribute (ms-Mcs-AdmPwd)
-    Write-Host "Disabling security flags on LAPS attribute..." -ForegroundColor Yellow
+    Write-Log "Disabling security flags on LAPS attribute..." -Level WARNING
     try {
         $lapsAttrDN = "CN=ms-Mcs-AdmPwd,$forestSchemaNCDN"
         $lapsAttr = [ADSI]("LDAP://$forestSchemaFsmoFQDN/$lapsAttrDN")
@@ -241,15 +241,15 @@ function Invoke-ModuleADDelegations {
         $newSearchFlags = $currentSearchFlags -bxor 128 -bxor 256 -bxor 512
         $lapsAttr.Put("searchFlags", $newSearchFlags)
         $lapsAttr.SetInfo()
-        Write-Host "  [+] Disabled security flags (CONFIDENTIAL, NEVER_AUDIT_VALUE, RODC_FILTERED) on ms-Mcs-AdmPwd" -ForegroundColor Green
+        Write-Log "  [+] Disabled security flags (CONFIDENTIAL, NEVER_AUDIT_VALUE, RODC_FILTERED) on ms-Mcs-AdmPwd" -Level SUCCESS
     }
     catch {
-        Write-Host "  [!] LAPS not installed or failed: $_" -ForegroundColor Yellow
+        Write-Log "  [!] LAPS not installed or failed: $_" -Level WARNING
     }
-    Write-Host ""
+    Write-Log "" -Level INFO
     
     # Add non-admin accounts to protected groups
-    Write-Host "Adding non-admin accounts to protected groups..." -ForegroundColor Yellow
+    Write-Log "Adding non-admin accounts to protected groups..." -Level WARNING
     try {
         # Account Operators
         $badActor10 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`10" } -ErrorAction SilentlyContinue
@@ -257,7 +257,7 @@ function Invoke-ModuleADDelegations {
             $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
             if ($accountOpsGroup) {
                 Add-ADGroupMember -Identity $accountOpsGroup -Members $badActor10 -ErrorAction SilentlyContinue
-                Write-Host "  [+] Added BdActr$domainNetBIOS`10 to Account Operators" -ForegroundColor Green
+                Write-Log "  [+] Added BdActr$domainNetBIOS`10 to Account Operators" -Level SUCCESS
             }
         }
         
@@ -267,7 +267,7 @@ function Invoke-ModuleADDelegations {
             $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
             if ($backupOpsGroup) {
                 Add-ADGroupMember -Identity $backupOpsGroup -Members $badActor11 -ErrorAction SilentlyContinue
-                Write-Host "  [+] Added BdActr$domainNetBIOS`11 to Backup Operators" -ForegroundColor Green
+                Write-Log "  [+] Added BdActr$domainNetBIOS`11 to Backup Operators" -Level SUCCESS
             }
         }
         
@@ -277,7 +277,7 @@ function Invoke-ModuleADDelegations {
             $serverOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
             if ($serverOpsGroup) {
                 Add-ADGroupMember -Identity $serverOpsGroup -Members $badActor12 -ErrorAction SilentlyContinue
-                Write-Host "  [+] Added BdActr$domainNetBIOS`12 to Server Operators" -ForegroundColor Green
+                Write-Log "  [+] Added BdActr$domainNetBIOS`12 to Server Operators" -Level SUCCESS
             }
         }
         
@@ -287,17 +287,17 @@ function Invoke-ModuleADDelegations {
             $domainAdminsGroup = Get-ADGroup -Filter { SamAccountName -eq "Domain Admins" } -ErrorAction SilentlyContinue
             if ($domainAdminsGroup) {
                 Add-ADGroupMember -Identity $domainAdminsGroup -Members $badActor22 -ErrorAction SilentlyContinue
-                Write-Host "  [+] Added BdActr$domainNetBIOS`22 to Domain Admins" -ForegroundColor Green
+                Write-Log "  [+] Added BdActr$domainNetBIOS`22 to Domain Admins" -Level SUCCESS
             }
         }
     }
     catch {
-        Write-Host "  [X] Failed to add members to protected groups: $_" -ForegroundColor Red
+        Write-Log "  [X] Failed to add members to protected groups: $_" -Level ERROR
     }
-    Write-Host ""
+    Write-Log "" -Level INFO
     
     # Grant LAPS and computer permissions
-    Write-Host "Granting LAPS and computer permissions..." -ForegroundColor Yellow
+    Write-Log "Granting LAPS and computer permissions..." -Level WARNING
     try {
         $computers = Get-ADComputer -Filter * -SearchBase $testOU -ErrorAction SilentlyContinue
         if ($computers.Count -gt 0) {
@@ -336,16 +336,16 @@ function Invoke-ModuleADDelegations {
                 
                 $computerObj.psbase.commitchanges()
             }
-            Write-Host "  [+] Granted LAPS and computer permissions on TEST OU computers" -ForegroundColor Green
+            Write-Log "  [+] Granted LAPS and computer permissions on TEST OU computers" -Level SUCCESS
         }
     }
     catch {
-        Write-Host "  [X] Failed to grant computer permissions: $_" -ForegroundColor Red
+        Write-Log "  [X] Failed to grant computer permissions: $_" -Level ERROR
     }
-    Write-Host ""
+    Write-Log "" -Level INFO
     
     # Grant Domain NC replication and ownership rights
-    Write-Host "Granting Domain NC replication and ownership rights..." -ForegroundColor Yellow
+    Write-Log "Granting Domain NC replication and ownership rights..." -Level WARNING
     try {
         $domainObj = [ADSI]("LDAP://$rwdcFQDN/$domainDN")
         
@@ -359,7 +359,7 @@ function Invoke-ModuleADDelegations {
             $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"None"
             $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSID, $aceRight, $aceType, $replicateChangesAllGUID, $aceInheritance)
             $domainObj.psbase.objectSecurity.AddAccessRule($ace)
-            Write-Host "  [+] Granted Replicate Changes All to BdActr$domainNetBIOS`17" -ForegroundColor Green
+            Write-Log "  [+] Granted Replicate Changes All to BdActr$domainNetBIOS`17" -Level SUCCESS
         }
         
         # Set Owner
@@ -367,7 +367,7 @@ function Invoke-ModuleADDelegations {
         if ($badActor18) {
             $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor18.SID)
             $domainObj.psbase.objectSecurity.SetOwner($badActorSID)
-            Write-Host "  [+] Set BdActr$domainNetBIOS`18 as owner of Domain NC" -ForegroundColor Green
+            Write-Log "  [+] Set BdActr$domainNetBIOS`18 as owner of Domain NC" -Level SUCCESS
         }
         
         # Write DACL
@@ -379,32 +379,32 @@ function Invoke-ModuleADDelegations {
             $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"None"
             $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSID, $aceRight, $aceType, $aceInheritance)
             $domainObj.psbase.objectSecurity.AddAccessRule($ace)
-            Write-Host "  [+] Granted WriteDACL to BdActr$domainNetBIOS`19" -ForegroundColor Green
+            Write-Log "  [+] Granted WriteDACL to BdActr$domainNetBIOS`19" -Level SUCCESS
         }
         
         $domainObj.psbase.commitchanges()
     }
     catch {
-        Write-Host "  [X] Failed to grant Domain NC rights: $_" -ForegroundColor Red
+        Write-Log "  [X] Failed to grant Domain NC rights: $_" -Level ERROR
     }
-    Write-Host ""
+    Write-Log "" -Level INFO
     
     # Configure Machine Account Quota
-    Write-Host "Configuring Machine Account Quota..." -ForegroundColor Yellow
+    Write-Log "Configuring Machine Account Quota..." -Level WARNING
     try {
         $domainObj = [ADSI]("LDAP://$rwdcFQDN/$domainDN")
         $newQuota = Get-Random -Minimum 1 -Maximum 25
         $domainObj.Put("ms-DS-MachineAccountQuota", $newQuota)
         $domainObj.SetInfo()
-        Write-Host "  [+] Set Machine Account Quota to $newQuota" -ForegroundColor Green
+        Write-Log "  [+] Set Machine Account Quota to $newQuota" -Level SUCCESS
     }
     catch {
-        Write-Host "  [X] Failed to configure Machine Account Quota: $_" -ForegroundColor Red
+        Write-Log "  [X] Failed to configure Machine Account Quota: $_" -Level ERROR
     }
-    Write-Host ""
+    Write-Log "" -Level INFO
     
-    Write-Host "AD delegations and security misconfigurations completed" -ForegroundColor Cyan
-    Write-Host ""
+    Write-Log "AD delegations and security misconfigurations completed" -Level INFO
+    Write-Log "" -Level INFO
 }
 
 Export-ModuleMember -Function Invoke-ModuleADDelegations

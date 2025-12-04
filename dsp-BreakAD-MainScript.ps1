@@ -62,11 +62,10 @@ function Write-Log {
     }
     
     # Write to log file
-    Add-Content -Path $Script:LogFile -Value $logMessage
+    Add-Content -Path $Script:LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
-# Make Write-Log available to all imported modules
-$global:LogFile = $Script:LogFile
+# Write-Log is now available to all modules since it's defined before they load
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan

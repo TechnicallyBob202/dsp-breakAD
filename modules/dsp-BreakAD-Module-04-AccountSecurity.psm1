@@ -43,12 +43,12 @@ function Invoke-ModuleAccountSecurity {
     $rwdcFQDN = $Environment.DomainController.HostName
     $testOU = "OU=TEST,$domainDN"
     
-    Write-Host ""
-    Write-Host "=== MODULE 04: Account Security ===" -ForegroundColor Cyan
-    Write-Host ""
+    Write-Log "" -Level INFO
+    Write-Log "=== MODULE 04: Account Security ===" -Level INFO
+    Write-Log "" -Level INFO
     
     # Force password refresh on Bad Actors
-    Write-Host "Forcing password refresh cycles..." -ForegroundColor Yellow
+    Write-Log "Forcing password refresh cycles..." -Level WARNING
     try {
         $badActors = Get-ADUser -Filter { SamAccountName -like "BdActr*" } -SearchBase $testOU -ErrorAction SilentlyContinue
         $refreshCount = 0
@@ -77,13 +77,13 @@ function Invoke-ModuleAccountSecurity {
             }
             catch { }
         }
-        Write-Host "  [+] Forced password refresh on $refreshCount accounts" -ForegroundColor Green
+        Write-Log "  [+] Forced password refresh on $refreshCount accounts" -Level SUCCESS
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host ""
+    catch { Write-Log "  [!] Error: $_" -Level WARNING }
+    Write-Log "" -Level INFO
     
     # Add computer accounts to privileged groups
-    Write-Host "Adding computers to privileged groups..." -ForegroundColor Yellow
+    Write-Log "Adding computers to privileged groups..." -Level WARNING
     try {
         $computers = Get-ADComputer -Filter * -SearchBase $testOU -ErrorAction SilentlyContinue
         $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
@@ -110,13 +110,13 @@ function Invoke-ModuleAccountSecurity {
             }
             catch { }
         }
-        Write-Host "  [+] Added $addedCount computers to privileged groups" -ForegroundColor Green
+        Write-Log "  [+] Added $addedCount computers to privileged groups" -Level SUCCESS
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host ""
+    catch { Write-Log "  [!] Error: $_" -Level WARNING }
+    Write-Log "" -Level INFO
     
     # Add disabled accounts to protected groups
-    Write-Host "Adding disabled accounts to protected groups..." -ForegroundColor Yellow
+    Write-Log "Adding disabled accounts to protected groups..." -Level WARNING
     try {
         $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
         $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
@@ -146,13 +146,13 @@ function Invoke-ModuleAccountSecurity {
                 catch { }
             }
         }
-        Write-Host "  [+] Added $disabledCount disabled accounts to protected groups" -ForegroundColor Green
+        Write-Log "  [+] Added $disabledCount disabled accounts to protected groups" -Level SUCCESS
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host ""
+    catch { Write-Log "  [!] Error: $_" -Level WARNING }
+    Write-Log "" -Level INFO
     
     # Ephemeral admin memberships
-    Write-Host "Creating ephemeral admin memberships..." -ForegroundColor Yellow
+    Write-Log "Creating ephemeral admin memberships..." -Level WARNING
     try {
         $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
         $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
@@ -185,13 +185,13 @@ function Invoke-ModuleAccountSecurity {
                 catch { }
             }
         }
-        Write-Host "  [+] Created $ephemeralCount ephemeral memberships" -ForegroundColor Green
+        Write-Log "  [+] Created $ephemeralCount ephemeral memberships" -Level SUCCESS
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host ""
+    catch { Write-Log "  [!] Error: $_" -Level WARNING }
+    Write-Log "" -Level INFO
     
     # Assign 50+ bad actors to privileged groups
-    Write-Host "Assigning 50+ bad actors to privileged groups..." -ForegroundColor Yellow
+    Write-Log "Assigning 50+ bad actors to privileged groups..." -Level WARNING
     try {
         $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
         $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
@@ -225,13 +225,13 @@ function Invoke-ModuleAccountSecurity {
                 catch { }
             }
         }
-        Write-Host "  [+] Assigned $assignedCount bad actors to privileged groups" -ForegroundColor Green
+        Write-Log "  [+] Assigned $assignedCount bad actors to privileged groups" -Level SUCCESS
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host ""
+    catch { Write-Log "  [!] Error: $_" -Level WARNING }
+    Write-Log "" -Level INFO
     
     # Set adminCount=1 with inheritance
-    Write-Host "Setting adminCount=1 with inheritance enabled..." -ForegroundColor Yellow
+    Write-Log "Setting adminCount=1 with inheritance enabled..." -Level WARNING
     try {
         $adminCountSet = 0
         for ($i = 82; $i -le 83; $i++) {
@@ -250,13 +250,13 @@ function Invoke-ModuleAccountSecurity {
                 catch { }
             }
         }
-        Write-Host "  [+] Set adminCount on $adminCountSet accounts" -ForegroundColor Green
+        Write-Log "  [+] Set adminCount on $adminCountSet accounts" -Level SUCCESS
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host ""
+    catch { Write-Log "  [!] Error: $_" -Level WARNING }
+    Write-Log "" -Level INFO
     
     # Non-default primary group IDs
-    Write-Host "Configuring non-default primary group IDs..." -ForegroundColor Yellow
+    Write-Log "Configuring non-default primary group IDs..." -Level WARNING
     try {
         $domainControllersGroup = Get-ADGroup -Filter { SamAccountName -eq "Domain Controllers" } -ErrorAction SilentlyContinue
         $primaryGroupSet = 0
@@ -274,13 +274,13 @@ function Invoke-ModuleAccountSecurity {
                 }
             }
         }
-        Write-Host "  [+] Set primaryGroupID on $primaryGroupSet accounts" -ForegroundColor Green
+        Write-Log "  [+] Set primaryGroupID on $primaryGroupSet accounts" -Level SUCCESS
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host ""
+    catch { Write-Log "  [!] Error: $_" -Level WARNING }
+    Write-Log "" -Level INFO
     
     # Unreadable primary group IDs
-    Write-Host "Making primary group IDs unreadable..." -ForegroundColor Yellow
+    Write-Log "Making primary group IDs unreadable..." -Level WARNING
     try {
         $primaryGroupIDGUID = "bf967a00-0de6-11d0-a285-00aa003049e2"
         $everyone = New-Object System.Security.Principal.SecurityIdentifier("S-1-1-0")
@@ -302,13 +302,13 @@ function Invoke-ModuleAccountSecurity {
                 catch { }
             }
         }
-        Write-Host "  [+] Made primaryGroupID unreadable on $unreadableCount accounts" -ForegroundColor Green
+        Write-Log "  [+] Made primaryGroupID unreadable on $unreadableCount accounts" -Level SUCCESS
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host ""
+    catch { Write-Log "  [!] Error: $_" -Level WARNING }
+    Write-Log "" -Level INFO
     
     # Pre-Windows 2000 Compatible Access
-    Write-Host "Adding to Pre-Windows 2000 Compatible Access..." -ForegroundColor Yellow
+    Write-Log "Adding to Pre-Windows 2000 Compatible Access..." -Level WARNING
     try {
         $preW2KGroup = Get-ADGroup -Filter { SamAccountName -eq "Pre-Windows 2000 Compatible Access" } -ErrorAction SilentlyContinue
         $prewCount = 0
@@ -325,13 +325,13 @@ function Invoke-ModuleAccountSecurity {
                 }
             }
         }
-        Write-Host "  [+] Added $prewCount members to Pre-Windows 2000 Compatible Access" -ForegroundColor Green
+        Write-Log "  [+] Added $prewCount members to Pre-Windows 2000 Compatible Access" -Level SUCCESS
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host ""
+    catch { Write-Log "  [!] Error: $_" -Level WARNING }
+    Write-Log "" -Level INFO
     
     # Weak password policy
-    Write-Host "Creating weak password policy (PSO)..." -ForegroundColor Yellow
+    Write-Log "Creating weak password policy (PSO)..." -Level WARNING
     try {
         $psoContainerDN = "CN=Password Settings Container,CN=System,$domainDN"
         $psoName = "PSO-Weak-Settings"
@@ -348,17 +348,17 @@ function Invoke-ModuleAccountSecurity {
             $newPSO.Put("msDS-PasswordReversibleEncryptionEnabled", "TRUE")
             $newPSO.Put("msDS-LockoutThreshold", 100)
             $newPSO.SetInfo()
-            Write-Host "  [+] Created weak password policy PSO" -ForegroundColor Green
+            Write-Log "  [+] Created weak password policy PSO" -Level SUCCESS
         }
         else {
-            Write-Host "  [!] PSO already exists" -ForegroundColor Yellow
+            Write-Log "  [!] PSO already exists" -Level WARNING
         }
     }
-    catch { Write-Host "  [!] PSO creation skipped" -ForegroundColor Yellow }
-    Write-Host ""
+    catch { Write-Log "  [!] PSO creation skipped" -Level WARNING }
+    Write-Log "" -Level INFO
     
     # Clear Protected Users
-    Write-Host "Clearing Protected Users group..." -ForegroundColor Yellow
+    Write-Log "Clearing Protected Users group..." -Level WARNING
     try {
         $protectedUsersGroup = Get-ADGroup -Filter { SamAccountName -eq "Protected Users" } -ErrorAction SilentlyContinue
         $clearedCount = 0
@@ -373,13 +373,13 @@ function Invoke-ModuleAccountSecurity {
                 catch { }
             }
         }
-        Write-Host "  [+] Cleared $clearedCount members from Protected Users" -ForegroundColor Green
+        Write-Log "  [+] Cleared $clearedCount members from Protected Users" -Level SUCCESS
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host ""
+    catch { Write-Log "  [!] Error: $_" -Level WARNING }
+    Write-Log "" -Level INFO
     
     # DNSAdmins
-    Write-Host "Adding non-admins to DNSAdmins..." -ForegroundColor Yellow
+    Write-Log "Adding non-admins to DNSAdmins..." -Level WARNING
     try {
         $dnsAdminsGroup = Get-ADGroup -Filter { SamAccountName -eq "DnsAdmins" } -ErrorAction SilentlyContinue
         $dnsCount = 0
@@ -396,13 +396,13 @@ function Invoke-ModuleAccountSecurity {
                 }
             }
         }
-        Write-Host "  [+] Added $dnsCount members to DnsAdmins" -ForegroundColor Green
+        Write-Log "  [+] Added $dnsCount members to DnsAdmins" -Level SUCCESS
     }
-    catch { Write-Host "  [!] DNSAdmins not found or DNS not installed" -ForegroundColor Yellow }
-    Write-Host ""
+    catch { Write-Log "  [!] DNSAdmins not found or DNS not installed" -Level WARNING }
+    Write-Log "" -Level INFO
     
-    Write-Host "Module 04 completed" -ForegroundColor Green
-    Write-Host ""
+    Write-Log "Module 04 completed" -Level SUCCESS
+    Write-Log "" -Level INFO
 }
 
 Export-ModuleMember -Function Invoke-ModuleAccountSecurity
