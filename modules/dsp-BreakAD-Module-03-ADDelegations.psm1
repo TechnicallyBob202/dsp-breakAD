@@ -50,6 +50,8 @@ function Invoke-ModuleADDelegations {
     $forestDnmFsmoFQDN = $forest.DomainNamingMaster
     
     $dcContainerDN = "CN=Domain Controllers,$domainDN"
+    $testOU = "OU=TEST,$domainDN"
+    $adminSDHolderDN = "CN=AdminSDHolder,CN=System,$domainDN"
     
     $successCount = 0
     $errorCount = 0
@@ -65,7 +67,6 @@ function Invoke-ModuleADDelegations {
     # Enable Inheritance on AdminSDHolder
     Write-Host "Enabling inheritance on AdminSDHolder..." -ForegroundColor Yellow
     try {
-        $adminSDHolderDN = "CN=AdminSDHolder,CN=System,$domainDN"
         $adminSDHolder = [ADSI]("LDAP://$rwdcFQDN/$adminSDHolderDN")
         $dacl = $adminSDHolder.psbase.objectSecurity
         
@@ -100,6 +101,7 @@ function Invoke-ModuleADDelegations {
             $adminSDHolder.psbase.objectSecurity.AddAccessRule($ace)
             $adminSDHolder.psbase.commitchanges()
             Write-Host "  [+] Assigned Full Control on AdminSDHolder to BdActr$domainNetBIOS" + "0" -ForegroundColor Green
+            $successCount++
         }
     }
     catch {

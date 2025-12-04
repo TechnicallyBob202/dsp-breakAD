@@ -50,6 +50,7 @@ function Invoke-ModuleRegistrySecurity {
         try {
             Set-ItemProperty -Path $regPath -Name $regKey -Value 3 -ErrorAction SilentlyContinue
             Write-Host "  [+] Set LmCompatibilityLevel to 3 (NTLMv2 optional)" -ForegroundColor Green
+            $successCount++
         }
         catch {
             Write-Host "  [!] Registry modification requires local admin on target system" -ForegroundColor Yellow
@@ -66,6 +67,7 @@ function Invoke-ModuleRegistrySecurity {
         try {
             Set-ItemProperty -Path $regPath -Name $regKey -Value 0 -ErrorAction SilentlyContinue
             Write-Host "  [+] Enabled LAN Manager hashing (NoLmHash = 0)" -ForegroundColor Green
+            $successCount++
         }
         catch {
             Write-Host "  [!] Registry modification skipped" -ForegroundColor Yellow
@@ -82,6 +84,7 @@ function Invoke-ModuleRegistrySecurity {
             # Disable DES encryption check
             Set-ItemProperty -Path $regPath -Name "SupportedEncryptionTypes" -Value 3 -ErrorAction SilentlyContinue
             Write-Host "  [+] Set SupportedEncryptionTypes to allow weak encryption" -ForegroundColor Green
+            $successCount++
         }
         catch {
             Write-Host "  [!] Kerberos registry modification skipped" -ForegroundColor Yellow
@@ -98,6 +101,7 @@ function Invoke-ModuleRegistrySecurity {
         try {
             Set-ItemProperty -Path $regPath -Name $regKey -Value 0 -ErrorAction SilentlyContinue
             Write-Host "  [+] Disabled Credential Guard (LsaCfgFlags = 0)" -ForegroundColor Green
+            $successCount++
         }
         catch {
             Write-Host "  [!] Credential Guard setting skipped" -ForegroundColor Yellow
@@ -116,6 +120,7 @@ function Invoke-ModuleRegistrySecurity {
             # Enable null sessions
             Set-ItemProperty -Path $regPath -Name "NullSessionPipes" -Value "COMSPEC,SPOOL" -ErrorAction SilentlyContinue
             Write-Host "  [+] Weakened SMB encryption and session settings" -ForegroundColor Green
+            $successCount++
         }
         catch {
             Write-Host "  [!] SMB setting modification skipped" -ForegroundColor Yellow
@@ -132,6 +137,7 @@ function Invoke-ModuleRegistrySecurity {
             Set-ItemProperty -Path $regPath -Name "RestrictAnonymous" -Value 0 -ErrorAction SilentlyContinue
             Set-ItemProperty -Path $regPath -Name "EveryoneIncludesAnonymous" -Value 1 -ErrorAction SilentlyContinue
             Write-Host "  [+] Disabled null session restrictions" -ForegroundColor Green
+            $successCount++
         }
         catch {
             Write-Host "  [!] Null session setting modification skipped" -ForegroundColor Yellow
@@ -148,6 +154,7 @@ function Invoke-ModuleRegistrySecurity {
             Set-ItemProperty -Path $regPath -Name "RestrictAnonymousSam" -Value 0 -ErrorAction SilentlyContinue
             Set-ItemProperty -Path $regPath -Name "RestrictAnonymousNetBios" -Value 0 -ErrorAction SilentlyContinue
             Write-Host "  [+] Enabled anonymous SAM and NetBIOS enumeration" -ForegroundColor Green
+            $successCount++
         }
         catch {
             Write-Host "  [!] Anonymous enumeration setting modification skipped" -ForegroundColor Yellow
@@ -163,6 +170,7 @@ function Invoke-ModuleRegistrySecurity {
         try {
             Set-ItemProperty -Path $regPath -Name "AllowUnencryptedTraffic" -Value 1 -ErrorAction SilentlyContinue
             Write-Host "  [+] Enabled unencrypted WinRM traffic" -ForegroundColor Green
+            $successCount++
         }
         catch {
             Write-Host "  [!] WinRM setting modification skipped" -ForegroundColor Yellow
@@ -179,6 +187,7 @@ function Invoke-ModuleRegistrySecurity {
         try {
             Set-ItemProperty -Path $regPath -Name $regKey -Value 0 -ErrorAction SilentlyContinue
             Write-Host "  [+] Disabled LSA protection (RunAsPPL = 0)" -ForegroundColor Green
+            $successCount++
         }
         catch {
             Write-Host "  [!] LSA protection setting modification skipped" -ForegroundColor Yellow
@@ -194,6 +203,7 @@ function Invoke-ModuleRegistrySecurity {
         try {
             Set-ItemProperty -Path $regPath -Name "MitigationOptions" -Value 0 -ErrorAction SilentlyContinue
             Write-Host "  [+] Disabled security mitigations" -ForegroundColor Green
+            $successCount++
         }
         catch {
             Write-Host "  [!] Mitigation options setting modification skipped" -ForegroundColor Yellow
@@ -209,6 +219,7 @@ function Invoke-ModuleRegistrySecurity {
         try {
             Set-ItemProperty -Path $regPath -Name "EnableAuthEpResolution" -Value 0 -ErrorAction SilentlyContinue
             Write-Host "  [+] Weakened RPC authentication endpoint resolution" -ForegroundColor Green
+            $successCount++
         }
         catch {
             Write-Host "  [!] RPC security setting modification skipped" -ForegroundColor Yellow
