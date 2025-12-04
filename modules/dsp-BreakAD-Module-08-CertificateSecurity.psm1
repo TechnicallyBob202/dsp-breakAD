@@ -39,9 +39,11 @@ function Invoke-ModuleCertificateSecurity {
     $successCount = 0
     $errorCount = 0
     
-    Write-Host "" -ForegroundColor Cyan
-    Write-Host "=== MODULE 08: Certificate and Trust Security ===" -ForegroundColor Cyan
-    Write-Host "" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║  MODULE 08: Certificate Security       ║" -ForegroundColor Cyan
+    Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host ""
     # Modify certificate template permissions
     Write-Host "Modifying certificate template permissions..." -ForegroundColor Yellow
     try {

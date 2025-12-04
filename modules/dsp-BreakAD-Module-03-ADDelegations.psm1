@@ -43,6 +43,7 @@ function Invoke-ModuleADDelegations {
     $rwdcFQDN = $Environment.DomainController.HostName
     
     $forest = Get-ADForest -Current LocalComputer
+    $forestRootDomainFQDN = $forest.RootDomain
     $forestConfigNCDN = $forest.PartitionsContainer.Replace("CN=Partitions,","")
     $forestSchemaNCDN = "CN=Schema," + $forestConfigNCDN
     $forestSchemaFsmoFQDN = $forest.SchemaMaster
@@ -53,6 +54,11 @@ function Invoke-ModuleADDelegations {
     $successCount = 0
     $errorCount = 0
     
+    Write-Host ""
+    Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║  MODULE 03: AD Delegations             ║" -ForegroundColor Cyan
+    Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host ""
     Write-Host "Configuring AD delegations and security misconfigurations..." -ForegroundColor Cyan
     Write-Host ""
     

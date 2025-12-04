@@ -39,10 +39,17 @@ function Invoke-ModuleAccountSecurityUsers {
     )
     $domainDN = $Environment.Domain.DistinguishedName
     $domainFQDN = $Environment.Domain.DNSRoot
+    $pdcFsmoFQDN = $Environment.Domain.PDCEmulator
     $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $Environment.Domain.PDCEmulator }
     
     $successCount = 0
     $errorCount = 0
+    
+    Write-Host ""
+    Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║  MODULE 02: Account Security Users     ║" -ForegroundColor Cyan
+    Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host ""
     
     # Ensure TEST OU exists
     $testOU = "OU=TEST,$domainDN"

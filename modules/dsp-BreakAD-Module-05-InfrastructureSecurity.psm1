@@ -37,14 +37,17 @@ function Invoke-ModuleInfrastructureSecurity {
     )
     
     $domainDN = $Environment.Domain.DistinguishedName
+    $domainNetBIOS = $Environment.Domain.NetBIOSName
     $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $Environment.Domain.PDCEmulator }
     
     $successCount = 0
     $errorCount = 0
     
-    Write-Host "" -ForegroundColor Cyan
-    Write-Host "=== MODULE 05: Infrastructure Security ===" -ForegroundColor Cyan
-    Write-Host "" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║  MODULE 05: Infrastructure Security    ║" -ForegroundColor Cyan
+    Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host ""
     
     # Modify DC computer account userAccountControl
     Write-Host "Modifying DC computer account settings..." -ForegroundColor Yellow
@@ -54,8 +57,8 @@ function Invoke-ModuleInfrastructureSecurity {
             try {
                 # Remove trusted for delegation flag and other protective flags
                 $uac = $dcComputer.UserAccountControl
-                $uac -band -bnot 0x100000  # Remove TRUSTED_FOR_DELEGATION
-                $uac -band -bnot 0x80000   # Remove NOT_DELEGATED
+                $uac = $uac -band -bnot 0x100000  # Remove TRUSTED_FOR_DELEGATION
+                $uac = $uac -band -bnot 0x80000   # Remove NOT_DELEGATED
                 Set-ADComputer -Identity $dcComputer -Replace @{"userAccountControl" = $uac}
                 Write-Host "  [+] Modified DC computer account flags" -ForegroundColor Green
             }

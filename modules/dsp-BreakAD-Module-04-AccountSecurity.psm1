@@ -42,7 +42,11 @@ function Invoke-ModuleAccountSecurity {
     $successCount = 0
     $errorCount = 0
     
-    Write-Host "" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║  MODULE 04: Account Security           ║" -ForegroundColor Cyan
+    Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host ""
     Write-Host "=== MODULE 04: Account Security ===" -ForegroundColor Cyan
     Write-Host "" -ForegroundColor Cyan
     # Force password refresh on Bad Actors
