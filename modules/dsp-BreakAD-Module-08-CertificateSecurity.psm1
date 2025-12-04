@@ -34,7 +34,7 @@ function Invoke-ModuleCertificateSecurity {
     )
     $domainDN = $Environment.Domain.DistinguishedName
     $domainNetBIOS = $Environment.Domain.NetBIOSName
-    $rwdcFQDN = $Environment.DomainController.HostName
+    $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $Environment.Domain.PDCEmulator }
     
     $successCount = 0
     $errorCount = 0

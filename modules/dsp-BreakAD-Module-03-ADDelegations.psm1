@@ -40,17 +40,15 @@ function Invoke-ModuleADDelegations {
     
     $domainDN = $Environment.Domain.DistinguishedName
     $domainNetBIOS = $Environment.Domain.NetBIOSName
-    $rwdcFQDN = $Environment.DomainController.HostName
+    $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $Environment.Domain.PDCEmulator }
     
     $forest = Get-ADForest -Current LocalComputer
-    $forestRootDomainFQDN = $forest.RootDomain
     $forestConfigNCDN = $forest.PartitionsContainer.Replace("CN=Partitions,","")
     $forestSchemaNCDN = "CN=Schema," + $forestConfigNCDN
     $forestSchemaFsmoFQDN = $forest.SchemaMaster
     $forestDnmFsmoFQDN = $forest.DomainNamingMaster
     
     $dcContainerDN = "CN=Domain Controllers,$domainDN"
-    $testOU = "OU=TEST,$domainDN"
     $adminSDHolderDN = "CN=AdminSDHolder,CN=System,$domainDN"
     
     $successCount = 0
@@ -67,19 +65,11 @@ function Invoke-ModuleADDelegations {
     # Enable Inheritance on AdminSDHolder
     Write-Host "Enabling inheritance on AdminSDHolder..." -ForegroundColor Yellow
     try {
-        Write-Host "  [DEBUG] Creating LDAP binding to AdminSDHolder..." -ForegroundColor Gray
         $adminSDHolder = [ADSI]("LDAP://$rwdcFQDN/$adminSDHolderDN")
-        Write-Host "  [DEBUG] Got object, type: $($adminSDHolder.GetType().Name)" -ForegroundColor Gray
-        
-        Write-Host "  [DEBUG] Getting objectSecurity..." -ForegroundColor Gray
         $dacl = $adminSDHolder.psbase.objectSecurity
-        Write-Host "  [DEBUG] Got dacl, type: $($dacl.GetType().Name)" -ForegroundColor Gray
         
-        Write-Host "  [DEBUG] Checking protection state..." -ForegroundColor Gray
         if ($dacl.get_AreAccessRulesProtected()) {
-            Write-Host "  [DEBUG] Protection is enabled, disabling..." -ForegroundColor Gray
             $dacl.SetAccessRuleProtection($false, $true)
-            Write-Host "  [DEBUG] Calling commitchanges..." -ForegroundColor Gray
             $adminSDHolder.psbase.commitchanges()
             Write-Host "  [+] Inheritance enabled on AdminSDHolder" -ForegroundColor Green
             $successCount++
