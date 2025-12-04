@@ -13,7 +13,6 @@ function Invoke-ModuleRegistrySecurity {
     <#
     .SYNOPSIS
         Configures registry and authentication security misconfigurations
-    
     .DESCRIPTION
         Applies security misconfigurations at registry level:
         - Disable NTLMv2 enforcement
@@ -26,20 +25,20 @@ function Invoke-ModuleRegistrySecurity {
         - Configure dangerous WinRM settings
         - Disable LSA protection
         - Weaken remote procedure call security
-    
     .PARAMETER Environment
         Hashtable with Domain, DomainController, etc.
     #>
-    
     param(
         [Parameter(Mandatory=$true)]
         [hashtable]$Environment
     )
     
+    $successCount = 0
+    $errorCount = 0
+    
     Write-Host "" -ForegroundColor Cyan
     Write-Host "=== MODULE 07: Registry and Authentication Security ===" -ForegroundColor Cyan
     Write-Host "" -ForegroundColor Cyan
-    
     # Disable NTLMv2 enforcement
     Write-Host "Disabling NTLMv2 enforcement..." -ForegroundColor Yellow
     try {
@@ -56,7 +55,6 @@ function Invoke-ModuleRegistrySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Enable LAN Manager hashing
     Write-Host "Enabling LAN Manager hashing..." -ForegroundColor Yellow
     try {
@@ -73,7 +71,6 @@ function Invoke-ModuleRegistrySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Weaken Kerberos settings
     Write-Host "Weakening Kerberos settings..." -ForegroundColor Yellow
     try {
@@ -90,7 +87,6 @@ function Invoke-ModuleRegistrySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Disable credential guard
     Write-Host "Disabling Credential Guard..." -ForegroundColor Yellow
     try {
@@ -107,7 +103,6 @@ function Invoke-ModuleRegistrySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Weaken SMB settings
     Write-Host "Weakening SMB settings..." -ForegroundColor Yellow
     try {
@@ -126,7 +121,6 @@ function Invoke-ModuleRegistrySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Disable null session restrictions
     Write-Host "Disabling null session restrictions..." -ForegroundColor Yellow
     try {
@@ -143,7 +137,6 @@ function Invoke-ModuleRegistrySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Enable anonymous enumeration
     Write-Host "Enabling anonymous enumeration..." -ForegroundColor Yellow
     try {
@@ -160,7 +153,6 @@ function Invoke-ModuleRegistrySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Configure dangerous WinRM settings
     Write-Host "Configuring dangerous WinRM settings..." -ForegroundColor Yellow
     try {
@@ -176,7 +168,6 @@ function Invoke-ModuleRegistrySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Disable LSA protection
     Write-Host "Disabling LSA protection..." -ForegroundColor Yellow
     try {
@@ -193,7 +184,6 @@ function Invoke-ModuleRegistrySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Disable MitigationOptions (Control Flow Guard and others)
     Write-Host "Disabling security mitigations..." -ForegroundColor Yellow
     try {
@@ -209,7 +199,6 @@ function Invoke-ModuleRegistrySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Weaken RPC security
     Write-Host "Weakening RPC security..." -ForegroundColor Yellow
     try {
@@ -225,9 +214,13 @@ function Invoke-ModuleRegistrySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     Write-Host "Module 07 completed" -ForegroundColor Green
     Write-Host "" -ForegroundColor Cyan
+    
+    if ($errorCount -gt $successCount) {
+        return $false
+    }
+    return $true
 }
 
 Export-ModuleMember -Function Invoke-ModuleRegistrySecurity

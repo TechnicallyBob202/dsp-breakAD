@@ -13,7 +13,6 @@ function Invoke-ModuleCertificateSecurity {
     <#
     .SYNOPSIS
         Configures certificate and trust security misconfigurations
-    
     .DESCRIPTION
         Applies security misconfigurations at certificate and trust level:
         - Weaken certificate validation
@@ -26,24 +25,23 @@ function Invoke-ModuleCertificateSecurity {
         - Configure trust relationships with weak authentication
         - Disable certificate pinning
         - Enable LDAP to SSL fallback
-    
     .PARAMETER Environment
         Hashtable with Domain, DomainController, etc.
     #>
-    
     param(
         [Parameter(Mandatory=$true)]
         [hashtable]$Environment
     )
-    
     $domainDN = $Environment.Domain.DistinguishedName
     $domainNetBIOS = $Environment.Domain.NetBIOSName
     $rwdcFQDN = $Environment.DomainController.HostName
     
+    $successCount = 0
+    $errorCount = 0
+    
     Write-Host "" -ForegroundColor Cyan
     Write-Host "=== MODULE 08: Certificate and Trust Security ===" -ForegroundColor Cyan
     Write-Host "" -ForegroundColor Cyan
-    
     # Modify certificate template permissions
     Write-Host "Modifying certificate template permissions..." -ForegroundColor Yellow
     try {
@@ -72,7 +70,6 @@ function Invoke-ModuleCertificateSecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Enable autoenrollment for weak users
     Write-Host "Enabling certificate autoenrollment..." -ForegroundColor Yellow
     try {
@@ -86,7 +83,6 @@ function Invoke-ModuleCertificateSecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Grant CA permissions to bad actors
     Write-Host "Granting CA permissions to bad actors..." -ForegroundColor Yellow
     try {
@@ -131,7 +127,6 @@ function Invoke-ModuleCertificateSecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Modify CRL distribution points
     Write-Host "Modifying CRL distribution points..." -ForegroundColor Yellow
     try {
@@ -153,7 +148,6 @@ function Invoke-ModuleCertificateSecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Configure weak certificate chain validation
     Write-Host "Configuring weak certificate validation..." -ForegroundColor Yellow
     try {
@@ -175,7 +169,6 @@ function Invoke-ModuleCertificateSecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Enable LDAP to SSL fallback (dangerous)
     Write-Host "Enabling LDAP to SSL fallback..." -ForegroundColor Yellow
     try {
@@ -202,7 +195,6 @@ function Invoke-ModuleCertificateSecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Disable certificate pinning
     Write-Host "Disabling certificate pinning..." -ForegroundColor Yellow
     try {
@@ -218,7 +210,6 @@ function Invoke-ModuleCertificateSecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Grant dangerous permissions on NTAuthCertificates
     Write-Host "Modifying NTAuthCertificates permissions..." -ForegroundColor Yellow
     try {
@@ -247,7 +238,6 @@ function Invoke-ModuleCertificateSecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Configure certificate validity period weakening
     Write-Host "Weakening certificate validity periods..." -ForegroundColor Yellow
     try {
@@ -263,9 +253,13 @@ function Invoke-ModuleCertificateSecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     Write-Host "Module 08 completed" -ForegroundColor Green
     Write-Host "" -ForegroundColor Cyan
+    
+    if ($errorCount -gt $successCount) {
+        return $false
+    }
+    return $true
 }
 
 Export-ModuleMember -Function Invoke-ModuleCertificateSecurity

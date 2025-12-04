@@ -232,9 +232,17 @@ foreach ($moduleName in $loadedModules) {
     if (Get-Command -Name $functionName -ErrorAction SilentlyContinue) {
         try {
             Write-Log "Executing $functionName..." -Level INFO
-            & $functionName -Environment $Environment
-            Write-Log "$functionName completed successfully" -Level SUCCESS
-            $executedCount++
+            $result = & $functionName -Environment $Environment
+            
+            # Check if module returned explicit failure
+            if ($result -eq $false) {
+                Write-Log "WARNING: $functionName reported completion with errors" -Level WARNING
+                $failedCount++
+            }
+            else {
+                Write-Log "$functionName completed" -Level SUCCESS
+                $executedCount++
+            }
         }
         catch {
             Write-Log "ERROR in $functionName : $_" -Level ERROR

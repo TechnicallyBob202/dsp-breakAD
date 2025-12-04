@@ -43,13 +43,15 @@ function Invoke-ModuleADDelegations {
     $rwdcFQDN = $Environment.DomainController.HostName
     
     $forest = Get-ADForest -Current LocalComputer
-    $forestRootDomainFQDN = $forest.RootDomain
     $forestConfigNCDN = $forest.PartitionsContainer.Replace("CN=Partitions,","")
     $forestSchemaNCDN = "CN=Schema," + $forestConfigNCDN
     $forestSchemaFsmoFQDN = $forest.SchemaMaster
     $forestDnmFsmoFQDN = $forest.DomainNamingMaster
     
     $dcContainerDN = "CN=Domain Controllers,$domainDN"
+    
+    $successCount = 0
+    $errorCount = 0
     
     Write-Host "Configuring AD delegations and security misconfigurations..." -ForegroundColor Cyan
     Write-Host ""
@@ -65,12 +67,14 @@ function Invoke-ModuleADDelegations {
             $dacl.SetAccessRuleProtection($false, $true)
             $adminSDHolder.psbase.commitchanges()
             Write-Host "  [+] Inheritance enabled on AdminSDHolder" -ForegroundColor Green
+            $successCount++
         } else {
             Write-Host "  [!] Inheritance already enabled" -ForegroundColor Yellow
         }
     }
     catch {
         Write-Host "  [X] Failed to enable inheritance: $_" -ForegroundColor Red
+        $errorCount++
     }
     Write-Host ""
     
@@ -81,7 +85,7 @@ function Invoke-ModuleADDelegations {
         $badActor0 = Get-ADUser -Filter { SamAccountName -eq $badActorName0 } -ErrorAction SilentlyContinue
         if ($badActor0) {
             $adminSDHolder = [ADSI]("LDAP://$rwdcFQDN/$adminSDHolderDN")
-            $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor0.SID)
+            $badActorSID = $badActor0.SID
             $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"GenericAll"
             $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
             $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"All"
@@ -148,7 +152,7 @@ function Invoke-ModuleADDelegations {
             
             if ($badActor1) {
                 $dcObj = [ADSI]("LDAP://$rwdcFQDN/$($randomDC.DistinguishedName)")
-                $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor1.SID)
+                $badActorSID = $badActor1.SID
                 $dcObj.psbase.objectSecurity.SetOwner($badActorSID)
                 $dcObj.psbase.commitchanges()
                 Write-Host "  [+] Set BdActr$domainNetBIOS" + "1 as owner of $($randomDC.Name)" -ForegroundColor Green
@@ -184,7 +188,7 @@ function Invoke-ModuleADDelegations {
         # Full Control for all objects
         $badActor7 = $badActorName7 = "BdActr$domainNetBIOS" + "7"; Get-ADUser -Filter { SamAccountName -eq $badActorName7 } -ErrorAction SilentlyContinue
         if ($badActor7) {
-            $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor7.SID)
+            $badActorSID = $badActor7.SID
             $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"GenericAll"
             $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
             $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"All"
@@ -198,7 +202,7 @@ function Invoke-ModuleADDelegations {
         $badActor8 = $badActorName8 = "BdActr$domainNetBIOS" + "8"; Get-ADUser -Filter { SamAccountName -eq $badActorName8 } -ErrorAction SilentlyContinue
         if ($badActor8) {
             $computerSchemaGUID = "bf967a86-0de6-11d0-a285-00aa003049e2"
-            $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor8.SID)
+            $badActorSID = $badActor8.SID
             $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"GenericAll"
             $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
             $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"Descendents"
@@ -273,7 +277,7 @@ function Invoke-ModuleADDelegations {
         $badActor17 = $badActorName17 = "BdActr$domainNetBIOS" + "17"; Get-ADUser -Filter { SamAccountName -eq $badActorName17 } -ErrorAction SilentlyContinue
         if ($badActor17) {
             $replicateChangesAllGUID = "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"
-            $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor17.SID)
+            $badActorSID = $badActor17.SID
             $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"ExtendedRight"
             $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
             $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"None"
@@ -284,14 +288,14 @@ function Invoke-ModuleADDelegations {
         
         $badActor18 = $badActorName18 = "BdActr$domainNetBIOS" + "18"; Get-ADUser -Filter { SamAccountName -eq $badActorName18 } -ErrorAction SilentlyContinue
         if ($badActor18) {
-            $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor18.SID)
+            $badActorSID = $badActor18.SID
             $domainObj.psbase.objectSecurity.SetOwner($badActorSID)
             Write-Host "  [+] Set BdActr$domainNetBIOS" + "18 as owner of Domain NC" -ForegroundColor Green
         }
         
         $badActor19 = $badActorName19 = "BdActr$domainNetBIOS" + "19"; Get-ADUser -Filter { SamAccountName -eq $badActorName19 } -ErrorAction SilentlyContinue
         if ($badActor19) {
-            $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor19.SID)
+            $badActorSID = $badActor19.SID
             $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"WriteDACL"
             $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
             $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"None"
@@ -322,7 +326,17 @@ function Invoke-ModuleADDelegations {
     Write-Host ""
     
     Write-Host "AD delegations and security misconfigurations completed" -ForegroundColor Cyan
+    Write-Host "  Successful operations: $successCount" -ForegroundColor Green
+    if ($errorCount -gt 0) {
+        Write-Host "  Failed operations: $errorCount" -ForegroundColor Red
+    }
     Write-Host ""
+    
+    # Return false if too many errors
+    if ($errorCount -gt $successCount) {
+        return $false
+    }
+    return $true
 }
 
 Export-ModuleMember -Function Invoke-ModuleADDelegations

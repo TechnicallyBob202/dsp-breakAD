@@ -13,7 +13,6 @@ function Invoke-ModuleGroupPolicySecurity {
     <#
     .SYNOPSIS
         Configures Group Policy security misconfigurations
-    
     .DESCRIPTION
         Applies security misconfigurations at Group Policy level:
         - Modify Default Domain Policy settings
@@ -26,22 +25,20 @@ function Invoke-ModuleGroupPolicySecurity {
         - Modify security options
         - Configure weak encryption settings
         - Grant bad actors permissions on GPOs
-    
     .PARAMETER Environment
         Hashtable with Domain, DomainController, etc.
     #>
-    
     param(
         [Parameter(Mandatory=$true)]
         [hashtable]$Environment
-    )
+    )\n    $domainNetBIOS = $Environment.Domain.NetBIOSName
     
-    $domainNetBIOS = $Environment.Domain.NetBIOSName
+    $successCount = 0
+    $errorCount = 0
     
     Write-Host "" -ForegroundColor Cyan
     Write-Host "=== MODULE 06: Group Policy Security ===" -ForegroundColor Cyan
     Write-Host "" -ForegroundColor Cyan
-    
     # Modify Default Domain Policy settings
     Write-Host "Modifying Default Domain Policy..." -ForegroundColor Yellow
     try {
@@ -60,7 +57,6 @@ function Invoke-ModuleGroupPolicySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Grant bad actors permissions on GPOs
     Write-Host "Granting bad actors permissions on GPOs..." -ForegroundColor Yellow
     try {
@@ -83,7 +79,6 @@ function Invoke-ModuleGroupPolicySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Disable audit policies
     Write-Host "Disabling security audit policies..." -ForegroundColor Yellow
     try {
@@ -92,7 +87,6 @@ function Invoke-ModuleGroupPolicySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Configure weak password policy via GPO
     Write-Host "Configuring weak password policies..." -ForegroundColor Yellow
     try {
@@ -116,7 +110,6 @@ function Invoke-ModuleGroupPolicySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Modify UAC settings via GPO
     Write-Host "Modifying UAC settings..." -ForegroundColor Yellow
     try {
@@ -136,7 +129,6 @@ function Invoke-ModuleGroupPolicySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Disable Windows Defender via GPO
     Write-Host "Disabling security software policies..." -ForegroundColor Yellow
     try {
@@ -156,7 +148,6 @@ function Invoke-ModuleGroupPolicySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Configure dangerous account lockout settings
     Write-Host "Configuring dangerous account lockout settings..." -ForegroundColor Yellow
     try {
@@ -180,7 +171,6 @@ function Invoke-ModuleGroupPolicySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Enable guest account via GPO
     Write-Host "Enabling guest account access..." -ForegroundColor Yellow
     try {
@@ -200,7 +190,6 @@ function Invoke-ModuleGroupPolicySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Disable SMB signing
     Write-Host "Disabling SMB signing..." -ForegroundColor Yellow
     try {
@@ -222,7 +211,6 @@ function Invoke-ModuleGroupPolicySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     # Modify PowerShell execution policy via GPO
     Write-Host "Modifying PowerShell execution policy..." -ForegroundColor Yellow
     try {
@@ -241,9 +229,13 @@ function Invoke-ModuleGroupPolicySecurity {
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
     Write-Host "Module 06 completed" -ForegroundColor Green
     Write-Host "" -ForegroundColor Cyan
+    
+    if ($errorCount -gt $successCount) {
+        return $false
+    }
+    return $true
 }
 
 Export-ModuleMember -Function Invoke-ModuleGroupPolicySecurity

@@ -1,287 +1,399 @@
 ################################################################################
 ##
-## dsp-BreakAD-Module-05-InfrastructureSecurity.psm1
+## dsp-BreakAD-Module-04-AccountSecurity.psm1
 ##
-## Configures infrastructure with security misconfigurations
+## Configures user and computer accounts with various security misconfigurations
 ## 
 ## Author: Bob Lyons
 ## Version: 1.0.0-20251204
 ##
 ################################################################################
 
-function Invoke-ModuleInfrastructureSecurity {
+function Invoke-ModuleAccountSecurity {
     <#
     .SYNOPSIS
-        Configures infrastructure security misconfigurations
-    
+        Configures account security misconfigurations
     .DESCRIPTION
-        Applies security misconfigurations at infrastructure level:
-        - Modify DC computer account settings
-        - Configure dangerous delegation on DC
-        - Set weak site replication settings
-        - Configure DNS admin delegation
-        - Enable unauthenticated access on shares
-        - Modify schema admins and enterprise admins
-        - Set risky replication settings
-        - Configure insecure LDAP bindings
-        - Modify DomainDNSZones permissions
-        - Configure forest-level misconfigurations
-    
+        Applies security misconfigurations across user/computer accounts:
+        - Force password refresh cycles
+        - Add computers to privileged groups
+        - Add disabled accounts to protected groups
+        - Create ephemeral admin memberships
+        - Assign 50+ bad actors to privileged groups
+        - Set adminCount=1 with inheritance enabled
+        - Configure non-default primary group IDs
+        - Make primary group IDs unreadable
+        - Add to Pre-Windows 2000 Compatible Access
+        - Create weak password policy (PSO)
+        - Clear Protected Users group
+        - Add non-admins to DNSAdmins
     .PARAMETER Environment
         Hashtable with Domain, DomainController, etc.
     #>
-    
     param(
         [Parameter(Mandatory=$true)]
         [hashtable]$Environment
     )
-    
     $domainDN = $Environment.Domain.DistinguishedName
     $domainNetBIOS = $Environment.Domain.NetBIOSName
     $rwdcFQDN = $Environment.DomainController.HostName
+    $testOU = "OU=TEST,$domainDN"
+    
+    $successCount = 0
+    $errorCount = 0
     
     Write-Host "" -ForegroundColor Cyan
-    Write-Host "=== MODULE 05: Infrastructure Security ===" -ForegroundColor Cyan
+    Write-Host "=== MODULE 04: Account Security ===" -ForegroundColor Cyan
     Write-Host "" -ForegroundColor Cyan
-    
-    # Modify DC computer account userAccountControl
-    Write-Host "Modifying DC computer account settings..." -ForegroundColor Yellow
+    # Force password refresh on Bad Actors
+    Write-Host "Forcing password refresh cycles..." -ForegroundColor Yellow
     try {
-        $dcComputer = Get-ADComputer -Filter { DNSHostName -eq $rwdcFQDN } -ErrorAction SilentlyContinue
-        if ($dcComputer) {
-            try {
-                # Remove trusted for delegation flag and other protective flags
-                $uac = $dcComputer.UserAccountControl
-                $uac = $uac -band -bnot 0x100000  # Remove TRUSTED_FOR_DELEGATION
-                $uac = $uac -band -bnot 0x80000   # Remove NOT_DELEGATED
-                Set-ADComputer -Identity $dcComputer -Replace @{"userAccountControl" = $uac}
-                Write-Host "  [+] Modified DC computer account flags" -ForegroundColor Green
-            }
-            catch {
-                Write-Host "  [!] Error modifying DC account: $_" -ForegroundColor Yellow
-            }
-        }
-    }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    
-    # Configure dangerous delegation on DC
-    Write-Host "Configuring delegation on DC computer..." -ForegroundColor Yellow
-    try {
-        $dcComputer = Get-ADComputer -Filter { DNSHostName -eq $rwdcFQDN } -ErrorAction SilentlyContinue
-        if ($dcComputer) {
-            try {
-                # Enable unconstrained delegation (dangerous for DC)
-                Set-ADComputer -Identity $dcComputer -TrustedForDelegation $true
-                Write-Host "  [+] Enabled unconstrained delegation on DC" -ForegroundColor Green
-            }
-            catch {
-                Write-Host "  [!] Error: $_" -ForegroundColor Yellow
-            }
-        }
-    }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    
-    # Modify schema admins and enterprise admins
-    Write-Host "Modifying schema and enterprise admin groups..." -ForegroundColor Yellow
-    try {
-        $badActor100 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`100" } -ErrorAction SilentlyContinue
-        $badActor101 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`101" } -ErrorAction SilentlyContinue
+        $badActors = Get-ADUser -Filter { SamAccountName -like "BdActr*" } -SearchBase $testOU -ErrorAction SilentlyContinue
+        $refreshCount = 0
         
-        $schemaAdmins = Get-ADGroup -Filter { Name -eq "Schema Admins" } -ErrorAction SilentlyContinue
-        $enterpriseAdmins = Get-ADGroup -Filter { Name -eq "Enterprise Admins" } -ErrorAction SilentlyContinue
+        foreach ($badActor in $badActors) {
+            try {
+                $badActorObj = [ADSI]("LDAP://$rwdcFQDN/$($badActor.DistinguishedName)")
+                $pwdNeverExpiresSet = ($badActor.UserAccountControl -band 65536) -eq 65536
+                
+                if ($pwdNeverExpiresSet) {
+                    $badActorObj.Put("userAccountControl", $badActor.UserAccountControl -bxor 65536)
+                    $badActorObj.SetInfo()
+                }
+                
+                $badActorObj.Put("pwdLastSet", 0)
+                $badActorObj.SetInfo()
+                $badActorObj.Put("pwdLastSet", -1)
+                $badActorObj.SetInfo()
+                
+                if ($pwdNeverExpiresSet) {
+                    $badActorObj.Put("userAccountControl", $badActor.UserAccountControl -bor 65536)
+                    $badActorObj.SetInfo()
+                }
+                
+                $refreshCount++
+            }
+            catch { }
+        }
+        Write-Host "  [+] Forced password refresh on $refreshCount accounts" -ForegroundColor Green
+    }
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
+    # Add computer accounts to privileged groups
+    Write-Host "Adding computers to privileged groups..." -ForegroundColor Yellow
+    try {
+        $computers = Get-ADComputer -Filter * -SearchBase $testOU -ErrorAction SilentlyContinue
+        $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
+        $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
+        $serverOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
         
         $addedCount = 0
-        
-        if ($schemaAdmins -and $badActor100) {
+        $i = 0
+        foreach ($computer in $computers) {
+            $i++
             try {
-                Add-ADGroupMember -Identity $schemaAdmins -Members $badActor100 -ErrorAction SilentlyContinue
-                $addedCount++
-            }
-            catch { }
-        }
-        
-        if ($enterpriseAdmins -and $badActor101) {
-            try {
-                Add-ADGroupMember -Identity $enterpriseAdmins -Members $badActor101 -ErrorAction SilentlyContinue
-                $addedCount++
-            }
-            catch { }
-        }
-        
-        Write-Host "  [+] Added bad actors to forest-level groups: $addedCount" -ForegroundColor Green
-    }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    
-    # Configure dangerous replication settings
-    Write-Host "Configuring dangerous replication settings..." -ForegroundColor Yellow
-    try {
-        # Find a bad actor to assign dangerous perms
-        $badActor102 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`102" } -ErrorAction SilentlyContinue
-        
-        if ($badActor102) {
-            try {
-                $dcObj = [ADSI]("LDAP://$rwdcFQDN/CN=NTDS Settings,CN=$($Environment.DomainController.Name),CN=Servers,CN=Default-First-Site-Name,CN=Sites,CN=Configuration,$domainDN")
-                
-                # Grant replication rights to bad actor
-                $replicateChangesGUID = "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"
-                $badActorSecurityId = New-Object System.Security.Principal.SecurityIdentifier($badActor102.SID)
-                
-                $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"ExtendedRight"
-                $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
-                $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"None"
-                
-                $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSecurityId, $aceRight, $aceType, [guid]$replicateChangesGUID, $aceInheritance)
-                $dcObj.psbase.objectSecurity.AddAccessRule($ace)
-                $dcObj.psbase.commitchanges()
-                
-                Write-Host "  [+] Granted dangerous replication rights to bad actor" -ForegroundColor Green
-            }
-            catch {
-                Write-Host "  [!] Error setting replication rights: $_" -ForegroundColor Yellow
-            }
-        }
-    }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    
-    # Configure DomainDNSZones permissions
-    Write-Host "Configuring DomainDNSZones permissions..." -ForegroundColor Yellow
-    try {
-        $badActor103 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`103" } -ErrorAction SilentlyContinue
-        
-        if ($badActor103) {
-            try {
-                $dnsZoneDN = "DC=DomainDnsZones,$domainDN"
-                $dnsZoneObj = [ADSI]("LDAP://$rwdcFQDN/$dnsZoneDN")
-                
-                # Add bad actor with full control
-                $badActorSecurityId = New-Object System.Security.Principal.SecurityIdentifier($badActor103.SID)
-                $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"GenericAll"
-                $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
-                $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"All"
-                
-                $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSecurityId, $aceRight, $aceType, $aceInheritance)
-                $dnsZoneObj.psbase.objectSecurity.AddAccessRule($ace)
-                $dnsZoneObj.psbase.commitchanges()
-                
-                Write-Host "  [+] Granted Full Control on DomainDnsZones" -ForegroundColor Green
-            }
-            catch {
-                Write-Host "  [!] Error setting DNS zone permissions: $_" -ForegroundColor Yellow
-            }
-        }
-    }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    
-    # Modify schema permissions
-    Write-Host "Modifying schema permissions..." -ForegroundColor Yellow
-    try {
-        $badActor104 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`104" } -ErrorAction SilentlyContinue
-        
-        if ($badActor104) {
-            try {
-                $forest = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()
-                $schemaDN = $forest.SchemaRoleOwner.Partitions | Where-Object { $_ -match "^CN=Schema" }
-                
-                if ($schemaDN) {
-                    $schemaObj = [ADSI]("LDAP://$rwdcFQDN/$schemaDN")
-                    $badActorSecurityId = New-Object System.Security.Principal.SecurityIdentifier($badActor104.SID)
-                    
-                    $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"GenericAll"
-                    $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
-                    $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"All"
-                    
-                    $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSecurityId, $aceRight, $aceType, $aceInheritance)
-                    $schemaObj.psbase.objectSecurity.AddAccessRule($ace)
-                    $schemaObj.psbase.commitchanges()
-                    
-                    Write-Host "  [+] Granted Full Control on Schema" -ForegroundColor Green
+                if ($i -ge 1 -and $i -le 5 -and $accountOpsGroup) {
+                    Add-ADGroupMember -Identity $accountOpsGroup -Members $computer -ErrorAction SilentlyContinue
+                    $addedCount++
+                }
+                elseif ($i -ge 6 -and $i -le 10 -and $backupOpsGroup) {
+                    Add-ADGroupMember -Identity $backupOpsGroup -Members $computer -ErrorAction SilentlyContinue
+                    $addedCount++
+                }
+                elseif ($i -ge 11 -and $i -le 15 -and $serverOpsGroup) {
+                    Add-ADGroupMember -Identity $serverOpsGroup -Members $computer -ErrorAction SilentlyContinue
+                    $addedCount++
                 }
             }
-            catch {
-                Write-Host "  [!] Error setting schema permissions: $_" -ForegroundColor Yellow
-            }
+            catch { }
         }
+        Write-Host "  [+] Added $addedCount computers to privileged groups" -ForegroundColor Green
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
-    # Modify configuration partition permissions
-    Write-Host "Modifying configuration partition permissions..." -ForegroundColor Yellow
+    # Add disabled accounts to protected groups
+    Write-Host "Adding disabled accounts to protected groups..." -ForegroundColor Yellow
     try {
-        $badActor105 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`105" } -ErrorAction SilentlyContinue
+        $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
+        $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
+        $serverOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
+        $disabledCount = 0
         
-        if ($badActor105) {
-            try {
-                $configDN = "CN=Configuration,$domainDN"
-                $configObj = [ADSI]("LDAP://$rwdcFQDN/$configDN")
-                $badActorSecurityId = New-Object System.Security.Principal.SecurityIdentifier($badActor105.SID)
-                
-                $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"GenericAll"
-                $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
-                $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"All"
-                
-                $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSecurityId, $aceRight, $aceType, $aceInheritance)
-                $configObj.psbase.objectSecurity.AddAccessRule($ace)
-                $configObj.psbase.commitchanges()
-                
-                Write-Host "  [+] Granted Full Control on Configuration" -ForegroundColor Green
+        for ($i = 24; $i -le 26; $i++) {
+            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+            if ($badActor) {
+                try {
+                    if ($i -eq 24 -and $accountOpsGroup) {
+                        Add-ADGroupMember -Identity $accountOpsGroup -Members $badActor -ErrorAction SilentlyContinue
+                        Set-ADUser -Identity $badActor -Enabled $false
+                        $disabledCount++
+                    }
+                    elseif ($i -eq 25 -and $backupOpsGroup) {
+                        Add-ADGroupMember -Identity $backupOpsGroup -Members $badActor -ErrorAction SilentlyContinue
+                        Set-ADUser -Identity $badActor -Enabled $false
+                        $disabledCount++
+                    }
+                    elseif ($i -eq 26 -and $serverOpsGroup) {
+                        Add-ADGroupMember -Identity $serverOpsGroup -Members $badActor -ErrorAction SilentlyContinue
+                        Set-ADUser -Identity $badActor -Enabled $false
+                        $disabledCount++
+                    }
+                }
+                catch { }
             }
-            catch {
-                Write-Host "  [!] Error setting config permissions: $_" -ForegroundColor Yellow
+        }
+        Write-Host "  [+] Added $disabledCount disabled accounts to protected groups" -ForegroundColor Green
+    }
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
+    # Ephemeral admin memberships
+    Write-Host "Creating ephemeral admin memberships..." -ForegroundColor Yellow
+    try {
+        $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
+        $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
+        $serverOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
+        $ephemeralCount = 0
+        
+        for ($i = 27; $i -le 29; $i++) {
+            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+            if ($badActor) {
+                try {
+                    if ($i -eq 27 -and $accountOpsGroup) {
+                        Add-ADGroupMember -Identity $accountOpsGroup -Members $badActor -ErrorAction SilentlyContinue
+                        Start-Sleep -Milliseconds 100
+                        Remove-ADGroupMember -Identity $accountOpsGroup -Members $badActor -Confirm:$false -ErrorAction SilentlyContinue
+                        $ephemeralCount++
+                    }
+                    elseif ($i -eq 28 -and $backupOpsGroup) {
+                        Add-ADGroupMember -Identity $backupOpsGroup -Members $badActor -ErrorAction SilentlyContinue
+                        Start-Sleep -Milliseconds 100
+                        Remove-ADGroupMember -Identity $backupOpsGroup -Members $badActor -Confirm:$false -ErrorAction SilentlyContinue
+                        $ephemeralCount++
+                    }
+                    elseif ($i -eq 29 -and $serverOpsGroup) {
+                        Add-ADGroupMember -Identity $serverOpsGroup -Members $badActor -ErrorAction SilentlyContinue
+                        Start-Sleep -Milliseconds 100
+                        Remove-ADGroupMember -Identity $serverOpsGroup -Members $badActor -Confirm:$false -ErrorAction SilentlyContinue
+                        $ephemeralCount++
+                    }
+                }
+                catch { }
             }
         }
+        Write-Host "  [+] Created $ephemeralCount ephemeral memberships" -ForegroundColor Green
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
-    # Set DC to allow anonymous access
-    Write-Host "Configuring anonymous access settings..." -ForegroundColor Yellow
+    # Assign 50+ bad actors to privileged groups
+    Write-Host "Assigning 50+ bad actors to privileged groups..." -ForegroundColor Yellow
     try {
-        # Modify anonymousAccessPolicy registry setting
-        try {
-            # Note: This requires registry access on the DC
-            # In lab scenarios, might need explicit credential passing
-            Write-Host "  [!] Anonymous access modification requires DC registry access - skipped" -ForegroundColor Yellow
+        $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
+        $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
+        $serverOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
+        $domainAdminsGroup = Get-ADGroup -Filter { SamAccountName -eq "Domain Admins" } -ErrorAction SilentlyContinue
+        $assignedCount = 0
+        $i = 29
+        
+        for ($num = 30; $num -le 81; $num++) {
+            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$num" } -ErrorAction SilentlyContinue
+            if ($badActor) {
+                $i++
+                try {
+                    if ($i -ge 30 -and $i -le 42 -and $accountOpsGroup) {
+                        Add-ADGroupMember -Identity $accountOpsGroup -Members $badActor -ErrorAction SilentlyContinue
+                        $assignedCount++
+                    }
+                    elseif ($i -ge 43 -and $i -le 55 -and $backupOpsGroup) {
+                        Add-ADGroupMember -Identity $backupOpsGroup -Members $badActor -ErrorAction SilentlyContinue
+                        $assignedCount++
+                    }
+                    elseif ($i -ge 56 -and $i -le 68 -and $serverOpsGroup) {
+                        Add-ADGroupMember -Identity $serverOpsGroup -Members $badActor -ErrorAction SilentlyContinue
+                        $assignedCount++
+                    }
+                    elseif ($i -ge 69 -and $i -le 81 -and $domainAdminsGroup) {
+                        Add-ADGroupMember -Identity $domainAdminsGroup -Members $badActor -ErrorAction SilentlyContinue
+                        $assignedCount++
+                    }
+                }
+                catch { }
+            }
         }
-        catch {
-            Write-Host "  [!] Error: $_" -ForegroundColor Yellow
-        }
+        Write-Host "  [+] Assigned $assignedCount bad actors to privileged groups" -ForegroundColor Green
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
-    # Disable LDAP signing requirement
-    Write-Host "Configuring LDAP signing settings..." -ForegroundColor Yellow
+    # Set adminCount=1 with inheritance
+    Write-Host "Setting adminCount=1 with inheritance enabled..." -ForegroundColor Yellow
     try {
-        # Modify domain policy for LDAP signing
-        try {
-            # Note: This requires Group Policy or registry modification
-            # Usually requires: Set-GPRegistryValue or direct registry edit
-            Write-Host "  [!] LDAP signing modification requires DC registry/GPO access - skipped" -ForegroundColor Yellow
+        $adminCountSet = 0
+        for ($i = 82; $i -le 83; $i++) {
+            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+            if ($badActor) {
+                try {
+                    Set-ADUser -Identity $badActor -Replace @{"adminCount" = 1}
+                    $badActorObj = [ADSI]("LDAP://$rwdcFQDN/$($badActor.DistinguishedName)")
+                    $dacl = $badActorObj.psbase.objectSecurity
+                    if ($dacl.get_AreAccessRulesProtected()) {
+                        $dacl.SetAccessRuleProtection($false, $true)
+                        $badActorObj.psbase.commitchanges()
+                    }
+                    $adminCountSet++
+                }
+                catch { }
+            }
         }
-        catch {
-            Write-Host "  [!] Error: $_" -ForegroundColor Yellow
-        }
+        Write-Host "  [+] Set adminCount on $adminCountSet accounts" -ForegroundColor Green
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
-    # Enable null session pipes
-    Write-Host "Configuring null session settings..." -ForegroundColor Yellow
+    # Non-default primary group IDs
+    Write-Host "Configuring non-default primary group IDs..." -ForegroundColor Yellow
     try {
-        # Note: Null session access typically requires registry modifications
-        Write-Host "  [!] Null session configuration requires DC registry access - skipped" -ForegroundColor Yellow
+        $domainControllersGroup = Get-ADGroup -Filter { SamAccountName -eq "Domain Controllers" } -ErrorAction SilentlyContinue
+        $primaryGroupSet = 0
+        
+        if ($domainControllersGroup) {
+            for ($i = 84; $i -le 85; $i++) {
+                $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+                if ($badActor) {
+                    try {
+                        Add-ADGroupMember -Identity $domainControllersGroup -Members $badActor -ErrorAction SilentlyContinue
+                        Set-ADUser -Identity $badActor -Replace @{"primaryGroupID" = 516}
+                        $primaryGroupSet++
+                    }
+                    catch { }
+                }
+            }
+        }
+        Write-Host "  [+] Set primaryGroupID on $primaryGroupSet accounts" -ForegroundColor Green
     }
     catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
-    
-    Write-Host "Module 05 completed" -ForegroundColor Green
+    # Unreadable primary group IDs
+    Write-Host "Making primary group IDs unreadable..." -ForegroundColor Yellow
+    try {
+        $primaryGroupIDGUID = "bf967a00-0de6-11d0-a285-00aa003049e2"
+        $everyone = New-Object System.Security.Principal.SecurityIdentifier("S-1-1-0")
+        $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"ReadProperty"
+        $aceType = [System.Security.AccessControl.AccessControlType]"Deny"
+        $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"None"
+        $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($everyone, $aceRight, $aceType, $primaryGroupIDGUID, $aceInheritance)
+        $unreadableCount = 0
+        
+        for ($i = 86; $i -le 87; $i++) {
+            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+            if ($badActor) {
+                try {
+                    $badActorObj = [ADSI]("LDAP://$rwdcFQDN/$($badActor.DistinguishedName)")
+                    $badActorObj.psbase.objectSecurity.AddAccessRule($ace)
+                    $badActorObj.psbase.commitchanges()
+                    $unreadableCount++
+                }
+                catch { }
+            }
+        }
+        Write-Host "  [+] Made primaryGroupID unreadable on $unreadableCount accounts" -ForegroundColor Green
+    }
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
     Write-Host "" -ForegroundColor Cyan
+    # Pre-Windows 2000 Compatible Access
+    Write-Host "Adding to Pre-Windows 2000 Compatible Access..." -ForegroundColor Yellow
+    try {
+        $preW2KGroup = Get-ADGroup -Filter { SamAccountName -eq "Pre-Windows 2000 Compatible Access" } -ErrorAction SilentlyContinue
+        $prewCount = 0
+        
+        if ($preW2KGroup) {
+            for ($i = 124; $i -le 126; $i++) {
+                $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+                if ($badActor) {
+                    try {
+                        Add-ADGroupMember -Identity $preW2KGroup -Members $badActor -ErrorAction SilentlyContinue
+                        $prewCount++
+                    }
+                    catch { }
+                }
+            }
+        }
+        Write-Host "  [+] Added $prewCount members to Pre-Windows 2000 Compatible Access" -ForegroundColor Green
+    }
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
+    # Weak password policy
+    Write-Host "Creating weak password policy (PSO)..." -ForegroundColor Yellow
+    try {
+        $psoContainerDN = "CN=Password Settings Container,CN=System,$domainDN"
+        $psoName = "PSO-Weak-Settings"
+        $psoExists = Get-ADObject -Filter { Name -eq $psoName } -SearchBase $psoContainerDN -ErrorAction SilentlyContinue
+        
+        if (-not $psoExists) {
+            $psoContainer = [ADSI]("LDAP://$rwdcFQDN/$psoContainerDN")
+            $newPSO = $psoContainer.Create("msDS-PasswordSettings", "CN=$psoName")
+            $newPSO.Put("msDS-PasswordSettingsPrecedence", 100)
+            $newPSO.Put("msDS-MaximumPasswordAge", -1244160000000000)
+            $newPSO.Put("msDS-MinimumPasswordLength", 3)
+            $newPSO.Put("msDS-PasswordComplexityEnabled", "FALSE")
+            $newPSO.Put("msDS-PasswordHistoryLength", 3)
+            $newPSO.Put("msDS-PasswordReversibleEncryptionEnabled", "TRUE")
+            $newPSO.Put("msDS-LockoutThreshold", 100)
+            $newPSO.SetInfo()
+            Write-Host "  [+] Created weak password policy PSO" -ForegroundColor Green
+        }
+        else {
+            Write-Host "  [!] PSO already exists" -ForegroundColor Yellow
+        }
+    }
+    catch { Write-Host "  [!] PSO creation skipped" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
+    # Clear Protected Users
+    Write-Host "Clearing Protected Users group..." -ForegroundColor Yellow
+    try {
+        $protectedUsersGroup = Get-ADGroup -Filter { SamAccountName -eq "Protected Users" } -ErrorAction SilentlyContinue
+        $clearedCount = 0
+        
+        if ($protectedUsersGroup) {
+            $members = Get-ADGroupMember -Identity $protectedUsersGroup -ErrorAction SilentlyContinue
+            foreach ($member in $members) {
+                try {
+                    Remove-ADGroupMember -Identity $protectedUsersGroup -Members $member -Confirm:$false -ErrorAction SilentlyContinue
+                    $clearedCount++
+                }
+                catch { }
+            }
+        }
+        Write-Host "  [+] Cleared $clearedCount members from Protected Users" -ForegroundColor Green
+    }
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
+    # DNSAdmins
+    Write-Host "Adding non-admins to DNSAdmins..." -ForegroundColor Yellow
+    try {
+        $dnsAdminsGroup = Get-ADGroup -Filter { SamAccountName -eq "DnsAdmins" } -ErrorAction SilentlyContinue
+        $dnsCount = 0
+        
+        if ($dnsAdminsGroup) {
+            for ($i = 90; $i -le 91; $i++) {
+                $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+                if ($badActor) {
+                    try {
+                        Add-ADGroupMember -Identity $dnsAdminsGroup -Members $badActor -ErrorAction SilentlyContinue
+                        $dnsCount++
+                    }
+                    catch { }
+                }
+            }
+        }
+        Write-Host "  [+] Added $dnsCount members to DnsAdmins" -ForegroundColor Green
+    }
+    catch { Write-Host "  [!] DNSAdmins not found or DNS not installed" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
+    Write-Host "Module 04 completed" -ForegroundColor Green
+    Write-Host "" -ForegroundColor Cyan
+    
+    if ($errorCount -gt $successCount) {
+        return $false
+    }
+    return $true
 }
 
-Export-ModuleMember -Function Invoke-ModuleInfrastructureSecurity
+Export-ModuleMember -Function Invoke-ModuleAccountSecurity

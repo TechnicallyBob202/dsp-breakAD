@@ -13,7 +13,6 @@ function Invoke-ModuleAccountSecurityUsers {
     <#
     .SYNOPSIS
         Creates user accounts with bad security configurations
-    
     .DESCRIPTION
         Creates individual user accounts with security misconfigurations:
         - Password never expires
@@ -31,19 +30,19 @@ function Invoke-ModuleAccountSecurityUsers {
         - Reversible encryption
         - Compromised password
         - Smartcard required
-    
     .PARAMETER Environment
         Hashtable containing domain information from preflight checks
     #>
-    
     param(
         [Parameter(Mandatory=$true)]
         [hashtable]$Environment
     )
-    
     $domainDN = $Environment.Domain.DistinguishedName
     $domainFQDN = $Environment.Domain.DNSRoot
     $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $Environment.Domain.PDCEmulator }
+    
+    $successCount = 0
+    $errorCount = 0
     
     # Ensure TEST OU exists
     $testOU = "OU=TEST,$domainDN"
@@ -51,13 +50,9 @@ function Invoke-ModuleAccountSecurityUsers {
         Write-Host "Creating TEST OU..." -ForegroundColor Cyan
         New-ADOrganizationalUnit -Name "TEST" -Path $domainDN -ErrorAction SilentlyContinue
     }
-    
     Write-Host "Creating user accounts with bad security configurations..." -ForegroundColor Cyan
     Write-Host "" -ForegroundColor Cyan
-    
-    $successCount = 0
     $skipCount = 0
-    
     # PASSWORD NEVER EXPIRES
     $randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
     $samAccountName = "USER$randomNr"
@@ -77,7 +72,6 @@ function Invoke-ModuleAccountSecurityUsers {
         }
     }
     Start-Sleep -s 1
-    
     # SENSITIVE AND NOT DELEGATABLE
     $randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
     $samAccountName = "USER$randomNr"
@@ -97,12 +91,16 @@ function Invoke-ModuleAccountSecurityUsers {
         }
     }
     Start-Sleep -s 1
-    
     Write-Host "" -ForegroundColor Cyan
     Write-Host "User account summary:" -ForegroundColor Cyan
     Write-Host "  Created: $successCount" -ForegroundColor Green
     Write-Host "  Skipped: $skipCount" -ForegroundColor Yellow
     Write-Host "" -ForegroundColor Cyan
+    
+    if ($errorCount -gt $successCount) {
+        return $false
+    }
+    return $true
 }
 
 Export-ModuleMember -Function Invoke-ModuleAccountSecurityUsers

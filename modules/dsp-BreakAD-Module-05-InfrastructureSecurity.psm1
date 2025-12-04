@@ -37,8 +37,10 @@ function Invoke-ModuleInfrastructureSecurity {
     )
     
     $domainDN = $Environment.Domain.DistinguishedName
-    $domainNetBIOS = $Environment.Domain.NetBIOSName
     $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $Environment.Domain.PDCEmulator }
+    
+    $successCount = 0
+    $errorCount = 0
     
     Write-Host "" -ForegroundColor Cyan
     Write-Host "=== MODULE 05: Infrastructure Security ===" -ForegroundColor Cyan
@@ -52,8 +54,8 @@ function Invoke-ModuleInfrastructureSecurity {
             try {
                 # Remove trusted for delegation flag and other protective flags
                 $uac = $dcComputer.UserAccountControl
-                $uac = $uac -band -bnot 0x100000  # Remove TRUSTED_FOR_DELEGATION
-                $uac = $uac -band -bnot 0x80000   # Remove NOT_DELEGATED
+                $uac -band -bnot 0x100000  # Remove TRUSTED_FOR_DELEGATION
+                $uac -band -bnot 0x80000   # Remove NOT_DELEGATED
                 Set-ADComputer -Identity $dcComputer -Replace @{"userAccountControl" = $uac}
                 Write-Host "  [+] Modified DC computer account flags" -ForegroundColor Green
             }
@@ -86,8 +88,6 @@ function Invoke-ModuleInfrastructureSecurity {
     # Modify schema admins and enterprise admins
     Write-Host "Modifying schema and enterprise admin groups..." -ForegroundColor Yellow
     try {
-        $badActor100 = $badActorName100 = "BdActr$domainNetBIOS" + "100"; Get-ADUser -Filter { SamAccountName -eq $badActorName100 } -ErrorAction SilentlyContinue
-        $badActor101 = $badActorName101 = "BdActr$domainNetBIOS" + "101"; Get-ADUser -Filter { SamAccountName -eq $badActorName101 } -ErrorAction SilentlyContinue
         
         $schemaAdmins = Get-ADGroup -Filter { Name -eq "Schema Admins" } -ErrorAction SilentlyContinue
         $enterpriseAdmins = Get-ADGroup -Filter { Name -eq "Enterprise Admins" } -ErrorAction SilentlyContinue
@@ -119,7 +119,6 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Host "Configuring dangerous replication settings..." -ForegroundColor Yellow
     try {
         # Find a bad actor to assign dangerous perms
-        $badActor102 = $badActorName102 = "BdActr$domainNetBIOS" + "102"; Get-ADUser -Filter { SamAccountName -eq $badActorName102 } -ErrorAction SilentlyContinue
         
         if ($badActor102) {
             try {
@@ -127,7 +126,7 @@ function Invoke-ModuleInfrastructureSecurity {
                 
                 # Grant replication rights to bad actor
                 $replicateChangesGUID = "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"
-                $badActorSecurityId = New-Object System.Security.Principal.SecurityIdentifier($badActor102.SID)
+                $badActorSecurityId = $badActor102
                 
                 $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"ExtendedRight"
                 $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
@@ -150,7 +149,6 @@ function Invoke-ModuleInfrastructureSecurity {
     # Configure DomainDNSZones permissions
     Write-Host "Configuring DomainDNSZones permissions..." -ForegroundColor Yellow
     try {
-        $badActor103 = $badActorName103 = "BdActr$domainNetBIOS" + "103"; Get-ADUser -Filter { SamAccountName -eq $badActorName103 } -ErrorAction SilentlyContinue
         
         if ($badActor103) {
             try {
@@ -158,7 +156,7 @@ function Invoke-ModuleInfrastructureSecurity {
                 $dnsZoneObj = [ADSI]("LDAP://$rwdcFQDN/$dnsZoneDN")
                 
                 # Add bad actor with full control
-                $badActorSecurityId = New-Object System.Security.Principal.SecurityIdentifier($badActor103.SID)
+                $badActorSecurityId = $badActor103
                 $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"GenericAll"
                 $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
                 $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"All"
@@ -180,7 +178,6 @@ function Invoke-ModuleInfrastructureSecurity {
     # Modify schema permissions
     Write-Host "Modifying schema permissions..." -ForegroundColor Yellow
     try {
-        $badActor104 = $badActorName104 = "BdActr$domainNetBIOS" + "104"; Get-ADUser -Filter { SamAccountName -eq $badActorName104 } -ErrorAction SilentlyContinue
         
         if ($badActor104) {
             try {
@@ -189,7 +186,7 @@ function Invoke-ModuleInfrastructureSecurity {
                 
                 if ($schemaDN) {
                     $schemaObj = [ADSI]("LDAP://$rwdcFQDN/$schemaDN")
-                    $badActorSecurityId = New-Object System.Security.Principal.SecurityIdentifier($badActor104.SID)
+                    $badActorSecurityId = $badActor104
                     
                     $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"GenericAll"
                     $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
@@ -213,13 +210,12 @@ function Invoke-ModuleInfrastructureSecurity {
     # Modify configuration partition permissions
     Write-Host "Modifying configuration partition permissions..." -ForegroundColor Yellow
     try {
-        $badActor105 = $badActorName105 = "BdActr$domainNetBIOS" + "105"; Get-ADUser -Filter { SamAccountName -eq $badActorName105 } -ErrorAction SilentlyContinue
         
         if ($badActor105) {
             try {
                 $configDN = "CN=Configuration,$domainDN"
                 $configObj = [ADSI]("LDAP://$rwdcFQDN/$configDN")
-                $badActorSecurityId = New-Object System.Security.Principal.SecurityIdentifier($badActor105.SID)
+                $badActorSecurityId = $badActor105
                 
                 $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"GenericAll"
                 $aceType = [System.Security.AccessControl.AccessControlType]"Allow"
@@ -281,7 +277,16 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Host "" -ForegroundColor Cyan
     
     Write-Host "Module 05 completed" -ForegroundColor Green
+    Write-Host "  Successful operations: $successCount" -ForegroundColor Green
+    if ($errorCount -gt 0) {
+        Write-Host "  Failed operations: $errorCount" -ForegroundColor Red
+    }
     Write-Host "" -ForegroundColor Cyan
+    
+    if ($errorCount -gt $successCount) {
+        return $false
+    }
+    return $true
 }
 
 Export-ModuleMember -Function Invoke-ModuleInfrastructureSecurity
