@@ -65,6 +65,9 @@ function Write-Log {
     Add-Content -Path $Script:LogFile -Value $logMessage
 }
 
+# Make Write-Log available to all imported modules
+$global:LogFile = $Script:LogFile
+
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "dsp-BreakAD - Security Misconfiguration" -ForegroundColor Cyan
@@ -158,6 +161,21 @@ $Environment = @{
 
 Write-Log "PHASE 2: Loading Modules" -Level INFO
 Write-Log "" -Level INFO
+
+# Load logging module first so all other modules can use it
+$loggingModule = Join-Path $Script:ScriptPath "dsp-BreakAD-Logging.psm1"
+if (Test-Path $loggingModule) {
+    try {
+        Import-Module $loggingModule -Force -ErrorAction Stop | Out-Null
+        Write-Log "Loaded: dsp-BreakAD-Logging" -Level SUCCESS
+    }
+    catch {
+        Write-Log "Failed to load dsp-BreakAD-Logging: $_" -Level ERROR
+    }
+}
+
+# Make log file available globally
+$global:LogFile = $Script:LogFile
 
 $modulesPath = Join-Path $Script:ModulesPath "*.psm1"
 $moduleFiles = Get-ChildItem -Path $modulesPath -ErrorAction SilentlyContinue | 
