@@ -43,9 +43,9 @@ function Invoke-ModuleAccountSecurity {
     $errorCount = 0
     
     Write-Host ""
-    Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║  MODULE 04: Account Security           ║" -ForegroundColor Cyan
-    Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
+    Write-Host "  MODULE 04: Account Security" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "=== MODULE 04: Account Security ===" -ForegroundColor Cyan
     Write-Host "" -ForegroundColor Cyan

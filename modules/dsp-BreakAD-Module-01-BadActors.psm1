@@ -45,9 +45,9 @@ function Invoke-ModuleBadActors {
     }
     
     Write-Host ""
-    Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║  MODULE 01: Bad Actor Accounts         ║" -ForegroundColor Cyan
-    Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
+    Write-Host "  MODULE 01: Bad Actor Accounts" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Creating 200 Bad Actor accounts in TEST OU..." -ForegroundColor Cyan
     Write-Host "" -ForegroundColor Cyan

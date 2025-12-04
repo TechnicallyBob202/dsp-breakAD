@@ -55,9 +55,9 @@ function Invoke-ModuleADDelegations {
     $errorCount = 0
     
     Write-Host ""
-    Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║  MODULE 03: AD Delegations             ║" -ForegroundColor Cyan
-    Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
+    Write-Host "  MODULE 03: AD Delegations" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Configuring AD delegations and security misconfigurations..." -ForegroundColor Cyan
     Write-Host ""

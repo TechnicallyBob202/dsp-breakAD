@@ -38,9 +38,9 @@ function Invoke-ModuleGroupPolicySecurity {
     $errorCount = 0
     
     Write-Host ""
-    Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║  MODULE 06: Group Policy Security      ║" -ForegroundColor Cyan
-    Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
+    Write-Host "  MODULE 06: Group Policy Security" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
     Write-Host ""
     # Modify Default Domain Policy settings
     Write-Host "Modifying Default Domain Policy..." -ForegroundColor Yellow

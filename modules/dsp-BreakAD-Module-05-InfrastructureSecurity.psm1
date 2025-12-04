@@ -44,9 +44,9 @@ function Invoke-ModuleInfrastructureSecurity {
     $errorCount = 0
     
     Write-Host ""
-    Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║  MODULE 05: Infrastructure Security    ║" -ForegroundColor Cyan
-    Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
+    Write-Host "  MODULE 05: Infrastructure Security" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
     Write-Host ""
     
     # Modify DC computer account userAccountControl

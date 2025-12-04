@@ -37,9 +37,9 @@ function Invoke-ModuleRegistrySecurity {
     $errorCount = 0
     
     Write-Host ""
-    Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║  MODULE 07: Registry Security          ║" -ForegroundColor Cyan
-    Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
+    Write-Host "  MODULE 07: Registry Security" -ForegroundColor Cyan
+    Write-Host "===============================================" -ForegroundColor Cyan
     Write-Host ""
     # Disable NTLMv2 enforcement
     Write-Host "Disabling NTLMv2 enforcement..." -ForegroundColor Yellow
