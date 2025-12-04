@@ -93,6 +93,11 @@ try {
         $primaryDC = $dcs
     }
     
+    # Ensure HostName property exists (add if missing)
+    if (-not $primaryDC.HostName -and $primaryDC.Name) {
+        $primaryDC | Add-Member -NotePropertyName "HostName" -NotePropertyValue $primaryDC.Name -Force
+    }
+    
     Write-Host "  [+] Domain: $($domain.Name)" -ForegroundColor Green
     Write-Host "  [+] NetBIOS: $($domain.NetBIOSName)" -ForegroundColor Green
     Write-Host "  [+] Primary DC: $($primaryDC.HostName)" -ForegroundColor Green
