@@ -36,11 +36,8 @@ function Invoke-ModuleInfrastructureSecurity {
         [hashtable]$Environment
     )
     
-    $domain = $Environment.Domain
-    $domainDN = $domain.DistinguishedName
-    $domainFQDN = $domain.DNSRoot
-    $domainNetBIOS = $domain.NetBIOSName
-    $domainSID = $domain.DomainSID.Value
+    $domainDN = $Environment.Domain.DistinguishedName
+    $domainNetBIOS = $Environment.Domain.NetBIOSName
     $rwdcFQDN = $Environment.DomainController.HostName
     
     Write-Host ""
@@ -130,7 +127,6 @@ function Invoke-ModuleInfrastructureSecurity {
                 
                 # Grant replication rights to bad actor
                 $replicateChangesGUID = "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"
-                $everyoneSecurityId = New-Object System.Security.Principal.SecurityIdentifier("S-1-1-0")
                 $badActorSecurityId = New-Object System.Security.Principal.SecurityIdentifier($badActor102.SID)
                 
                 $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"ExtendedRight"
@@ -247,8 +243,6 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Host "Configuring anonymous access settings..." -ForegroundColor Yellow
     try {
         # Modify anonymousAccessPolicy registry setting
-        $dcName = $Environment.DomainController.Name
-        
         try {
             # Note: This requires registry access on the DC
             # In lab scenarios, might need explicit credential passing
@@ -265,8 +259,6 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Host "Configuring LDAP signing settings..." -ForegroundColor Yellow
     try {
         # Modify domain policy for LDAP signing
-        $dcName = $Environment.DomainController.Name
-        
         try {
             # Note: This requires Group Policy or registry modification
             # Usually requires: Set-GPRegistryValue or direct registry edit

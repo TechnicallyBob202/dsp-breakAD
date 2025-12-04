@@ -36,10 +36,7 @@ function Invoke-ModuleGroupPolicySecurity {
         [hashtable]$Environment
     )
     
-    $domain = $Environment.Domain
-    $domainDN = $domain.DistinguishedName
-    $domainNetBIOS = $domain.NetBIOSName
-    $rwdcFQDN = $Environment.DomainController.HostName
+    $domainNetBIOS = $Environment.Domain.NetBIOSName
     
     Write-Host ""
     Write-Host "=== MODULE 06: Group Policy Security ===" -ForegroundColor Cyan
@@ -69,7 +66,6 @@ function Invoke-ModuleGroupPolicySecurity {
     try {
         $gpos = Get-GPO -All -ErrorAction SilentlyContinue
         $badActor110 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`110" } -ErrorAction SilentlyContinue
-        $badActor111 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`111" } -ErrorAction SilentlyContinue
         
         $grantCount = 0
         if ($gpos -and $badActor110) {

@@ -40,18 +40,11 @@ function Invoke-ModuleADDelegations {
         [hashtable]$Environment
     )
     
-    $domain = $Environment.Domain
-    $domainDN = $domain.DistinguishedName
-    $domainNetBIOS = $domain.NetBIOSName
-    $domainSID = $domain.DomainSID.Value
-    $pdcFsmoFQDN = $domain.PDCEmulator
+    $domainDN = $Environment.Domain.DistinguishedName
+    $domainNetBIOS = $Environment.Domain.NetBIOSName
     $rwdcFQDN = $Environment.DomainController.HostName
     
     $forest = Get-ADForest -Current LocalComputer
-    $forestRootDomainFQDN = $forest.RootDomain
-    $forestRootDomain = Get-ADDomain $forestRootDomainFQDN
-    $forestRootDomainNetBIOS = $forestRootDomain.NetBIOSName
-    $forestRootDomainSID = $forestRootDomain.DomainSID.Value
     $forestSchemaFsmoFQDN = $forest.SchemaMaster
     $forestDnmFsmoFQDN = $forest.DomainNamingMaster
     $forestConfigNCDN = $forest.PartitionsContainer.Replace("CN=Partitions,","")

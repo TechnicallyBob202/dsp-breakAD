@@ -41,10 +41,9 @@ function Invoke-ModuleAccountSecurityUsers {
         [hashtable]$Environment
     )
     
-    $domain = $Environment.Domain
-    $domainDN = $domain.DistinguishedName
-    $domainFQDN = $domain.DNSRoot
-    $pdcFsmoFQDN = $domain.PDCEmulator
+    $domainDN = $Environment.Domain.DistinguishedName
+    $domainFQDN = $Environment.Domain.DNSRoot
+    $pdcFsmoFQDN = $Environment.Domain.PDCEmulator
     $rwdcFQDN = $Environment.DomainController.HostName
     
     # Ensure TEST OU exists

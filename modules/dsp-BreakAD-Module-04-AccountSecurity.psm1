@@ -38,9 +38,8 @@ function Invoke-ModuleAccountSecurity {
         [hashtable]$Environment
     )
     
-    $domain = $Environment.Domain
-    $domainDN = $domain.DistinguishedName
-    $domainNetBIOS = $domain.NetBIOSName
+    $domainDN = $Environment.Domain.DistinguishedName
+    $domainNetBIOS = $Environment.Domain.NetBIOSName
     $rwdcFQDN = $Environment.DomainController.HostName
     $testOU = "OU=TEST,$domainDN"
     

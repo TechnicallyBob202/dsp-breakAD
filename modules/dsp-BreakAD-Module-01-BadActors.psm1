@@ -31,11 +31,10 @@ function Invoke-ModuleBadActors {
         [hashtable]$Environment
     )
     
-    $domain = $Environment.Domain
-    $domainDN = $domain.DistinguishedName
-    $domainFQDN = $domain.DNSRoot
-    $domainNetBIOS = $domain.NetBIOSName
-    $pdcFsmoFQDN = $domain.PDCEmulator
+    $domainDN = $Environment.Domain.DistinguishedName
+    $domainFQDN = $Environment.Domain.DNSRoot
+    $domainNetBIOS = $Environment.Domain.NetBIOSName
+    $pdcFsmoFQDN = $Environment.Domain.PDCEmulator
     $rwdcFQDN = $Environment.DomainController.HostName
     
     # Ensure TEST OU exists
