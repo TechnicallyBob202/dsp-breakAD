@@ -132,6 +132,11 @@ try {
         $primaryDC = $dcs
     }
     
+    # Ensure HostName exists - use Name if HostName is empty
+    if (-not $primaryDC.HostName) {
+        $primaryDC | Add-Member -MemberType NoteProperty -Name "HostName" -Value $primaryDC.Name -Force
+    }
+    
     Write-Log "Domain: $($domain.Name)" -Level SUCCESS
     Write-Log "NetBIOS: $($domain.NetBIOSName)" -Level SUCCESS
     Write-Log "Primary DC: $($primaryDC.HostName)" -Level SUCCESS
