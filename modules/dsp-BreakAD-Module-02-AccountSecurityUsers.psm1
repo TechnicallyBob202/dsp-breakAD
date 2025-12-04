@@ -71,7 +71,7 @@ function Invoke-ModuleAccountSecurityUsers {
         $samAccountName = "USER$randomNr"
         
         # Check if already exists
-        if (Get-ADUser -Filter { SamAccountName -eq $samAccountName } -ErrorAction SilentlyContinue) {
+        if (Get-ADUser -Filter { SamAccountName -eq $samAccountName } -Server $rwdcFQDN -ErrorAction SilentlyContinue) {
             Write-Host "  Skipping (exists): $Description" -ForegroundColor Yellow
             return $false
         }
@@ -94,11 +94,14 @@ function Invoke-ModuleAccountSecurityUsers {
                 ErrorAction = 'Stop'
             }
             
-            New-ADUser @newUserParams
+            $newUser = New-ADUser @newUserParams -PassThru
             
-            # Set additional attributes
+            # Wait for user to be available on DC
+            Start-Sleep -Milliseconds 500
+            
+            # Set additional attributes using the user object for better reliability
             $setUserParams = @{
-                Identity = $samAccountName
+                Identity = $newUser.DistinguishedName
                 Description = $Description
                 Server = $rwdcFQDN
                 ErrorAction = 'Stop'
@@ -112,7 +115,7 @@ function Invoke-ModuleAccountSecurityUsers {
             # Set account control flags
             if ($AccountControl.Count -gt 0) {
                 $controlParams = @{
-                    Identity = $samAccountName
+                    Identity = $newUser.DistinguishedName
                     Server = $rwdcFQDN
                     ErrorAction = 'Stop'
                 }
@@ -326,20 +329,22 @@ function Invoke-ModuleAccountSecurityUsers {
     $samAccountName = "USER$randomNr"
     $password = $(-join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32))
     
-    if (-not (Get-ADUser -Filter { SamAccountName -eq $samAccountName } -ErrorAction SilentlyContinue)) {
+    if (-not (Get-ADUser -Filter { SamAccountName -eq $samAccountName } -Server $rwdcFQDN -ErrorAction SilentlyContinue)) {
         try {
-            New-ADUser -Path $testOU -Enabled $true -Name "USER$randomNr" -GivenName "USER" -Surname $randomNr `
+            $newUser = New-ADUser -Path $testOU -Enabled $true -Name "USER$randomNr" -GivenName "USER" -Surname $randomNr `
                 -DisplayName "USER$randomNr" -SamAccountName $samAccountName `
                 -UserPrincipalName "USER.$randomNr@$domainFQDN" `
-                -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force) -Server $rwdcFQDN -ErrorAction Stop
+                -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force) -Server $rwdcFQDN -PassThru -ErrorAction Stop
             
-            Set-ADUser -Identity $samAccountName `
+            Start-Sleep -Milliseconds 500
+            
+            Set-ADUser -Identity $newUser.DistinguishedName `
                 -Description "USER WITH: PASSWORD REVERSIBLE ENCRYPTION AFTER SETTING" -Server $rwdcFQDN -ErrorAction Stop
             
-            Set-ADAccountControl -Identity $samAccountName -AllowReversiblePasswordEncryption $true -Server $rwdcFQDN -ErrorAction Stop
+            Set-ADAccountControl -Identity $newUser.DistinguishedName -AllowReversiblePasswordEncryption $true -Server $rwdcFQDN -ErrorAction Stop
             
             # Change password to trigger reversible encryption
-            Set-ADAccountPassword -Identity $samAccountName `
+            Set-ADAccountPassword -Identity $newUser.DistinguishedName `
                 -NewPassword (ConvertTo-SecureString $(-join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) `
                 -Server $rwdcFQDN -ErrorAction Stop
             
@@ -357,13 +362,31 @@ function Invoke-ModuleAccountSecurityUsers {
     Start-Sleep -s 1
     
     # COMPROMISED PASSWORD
-    if (New-BadUser -Description "USER WITH: COMPROMISED PASSWORD") {
-        $randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
-        $samAccountName = "USER$randomNr"
-        Set-ADAccountPassword -Identity $samAccountName -NewPassword (ConvertTo-SecureString "welcome" -AsPlainText -Force) `
-            -Server $rwdcFQDN -ErrorAction SilentlyContinue
-        $successCount++
-    } else { $skipCount++ }
+    $randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+    $samAccountName = "USER$randomNr"
+    
+    if (-not (Get-ADUser -Filter { SamAccountName -eq $samAccountName } -Server $rwdcFQDN -ErrorAction SilentlyContinue)) {
+        try {
+            $newUser = New-ADUser -Path $testOU -Enabled $true -Name "USER$randomNr" -GivenName "USER" -Surname $randomNr `
+                -DisplayName "USER$randomNr" -SamAccountName $samAccountName `
+                -UserPrincipalName "USER.$randomNr@$domainFQDN" `
+                -AccountPassword (ConvertTo-SecureString "welcome" -AsPlainText -Force) -Server $rwdcFQDN -PassThru -ErrorAction Stop
+            
+            Start-Sleep -Milliseconds 500
+            
+            Set-ADUser -Identity $newUser.DistinguishedName -Description "USER WITH: COMPROMISED PASSWORD" -Server $rwdcFQDN -ErrorAction Stop
+            
+            Write-Host "  Created: USER WITH: COMPROMISED PASSWORD" -ForegroundColor Green
+            $successCount++
+        }
+        catch {
+            Write-Host "  ERROR: USER WITH: COMPROMISED PASSWORD - $_" -ForegroundColor Red
+            $skipCount++
+        }
+    } else {
+        Write-Host "  Skipping (exists): USER WITH: COMPROMISED PASSWORD" -ForegroundColor Yellow
+        $skipCount++
+    }
     Start-Sleep -s 1
     
     # SMARTCARD REQUIRED (3 instances)
@@ -371,14 +394,16 @@ function Invoke-ModuleAccountSecurityUsers {
         $randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
         $samAccountName = "USER$randomNr"
         
-        if (-not (Get-ADUser -Filter { SamAccountName -eq $samAccountName } -ErrorAction SilentlyContinue)) {
+        if (-not (Get-ADUser -Filter { SamAccountName -eq $samAccountName } -Server $rwdcFQDN -ErrorAction SilentlyContinue)) {
             try {
-                New-ADUser -Path $testOU -Enabled $true -Name "USER$randomNr" -GivenName "USER" -Surname $randomNr `
+                $newUser = New-ADUser -Path $testOU -Enabled $true -Name "USER$randomNr" -GivenName "USER" -Surname $randomNr `
                     -DisplayName "USER$randomNr" -SamAccountName $samAccountName `
                     -UserPrincipalName "USER.$randomNr@$domainFQDN" `
-                    -AccountPassword (ConvertTo-SecureString "welcome" -AsPlainText -Force) -Server $rwdcFQDN -ErrorAction Stop
+                    -AccountPassword (ConvertTo-SecureString "welcome" -AsPlainText -Force) -Server $rwdcFQDN -PassThru -ErrorAction Stop
                 
-                Set-ADUser -Identity $samAccountName -SmartcardLogonRequired $true `
+                Start-Sleep -Milliseconds 500
+                
+                Set-ADUser -Identity $newUser.DistinguishedName -SmartcardLogonRequired $true `
                     -Description "USER WITH: SMARTCARD REQUIRED" -Server $rwdcFQDN -ErrorAction Stop
                 
                 Write-Host "  Created: USER WITH: SMARTCARD REQUIRED (instance $($i+1))" -ForegroundColor Green
