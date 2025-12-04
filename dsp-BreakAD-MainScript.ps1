@@ -93,8 +93,8 @@ try {
         $primaryDC = $dcs
     }
     
-    # Ensure HostName property exists (add if missing)
-    if (-not $primaryDC.HostName -and $primaryDC.Name) {
+    # ADDomainController objects use Name, not HostName - ensure both exist for compatibility
+    if (-not $primaryDC.HostName) {
         $primaryDC | Add-Member -NotePropertyName "HostName" -NotePropertyValue $primaryDC.Name -Force
     }
     
