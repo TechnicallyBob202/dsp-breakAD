@@ -31,7 +31,8 @@ function Invoke-ModuleGroupPolicySecurity {
     param(
         [Parameter(Mandatory=$true)]
         [hashtable]$Environment
-    )\n    $domainNetBIOS = $Environment.Domain.NetBIOSName
+    )
+    $domainNetBIOS = $Environment.Domain.NetBIOSName
     
     $successCount = 0
     $errorCount = 0
