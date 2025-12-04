@@ -43,7 +43,6 @@ function Invoke-ModuleAccountSecurityUsers {
     
     $domainDN = $Environment.Domain.DistinguishedName
     $domainFQDN = $Environment.Domain.DNSRoot
-    $pdcFsmoFQDN = $Environment.Domain.PDCEmulator
     $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $Environment.Domain.PDCEmulator }
     
     # Ensure TEST OU exists

@@ -43,7 +43,6 @@ function Invoke-ModuleADDelegations {
     $rwdcFQDN = $Environment.DomainController.HostName
     
     $forest = Get-ADForest -Current LocalComputer
-    $forestRootDomainFQDN = $forest.RootDomain
     $forestConfigNCDN = $forest.PartitionsContainer.Replace("CN=Partitions,","")
     $forestSchemaNCDN = "CN=Schema," + $forestConfigNCDN
     $forestSchemaFsmoFQDN = $forest.SchemaMaster
@@ -77,7 +76,7 @@ function Invoke-ModuleADDelegations {
     # Add non-admin to AdminSDHolder with Full Control
     Write-Host "Adding non-admin user to AdminSDHolder with Full Control..." -ForegroundColor Yellow
     try {
-        $badActor0 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`0" } -ErrorAction SilentlyContinue
+        $badActor0 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "0" } -ErrorAction SilentlyContinue
         if ($badActor0) {
             $adminSDHolder = [ADSI]("LDAP://$rwdcFQDN/$adminSDHolderDN")
             $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor0.SID)
@@ -88,7 +87,7 @@ function Invoke-ModuleADDelegations {
             
             $adminSDHolder.psbase.objectSecurity.AddAccessRule($ace)
             $adminSDHolder.psbase.commitchanges()
-            Write-Host "  [+] Assigned Full Control on AdminSDHolder to BdActr$domainNetBIOS`0" -ForegroundColor Green
+            Write-Host "  [+] Assigned Full Control on AdminSDHolder to BdActr$domainNetBIOS" + "0" -ForegroundColor Green
         }
     }
     catch {
@@ -143,14 +142,14 @@ function Invoke-ModuleADDelegations {
         $dcAccounts = Get-ADComputer -Filter { PrimaryGroupID -eq 516 -or PrimaryGroupID -eq 521 } -SearchBase $dcContainerDN -ErrorAction SilentlyContinue
         if ($dcAccounts.Count -gt 0) {
             $randomDC = Get-Random -InputObject $dcAccounts
-            $badActor1 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`1" } -ErrorAction SilentlyContinue
+            $badActor1 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "1" } -ErrorAction SilentlyContinue
             
             if ($badActor1) {
                 $dcObj = [ADSI]("LDAP://$rwdcFQDN/$($randomDC.DistinguishedName)")
                 $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor1.SID)
                 $dcObj.psbase.objectSecurity.SetOwner($badActorSID)
                 $dcObj.psbase.commitchanges()
-                Write-Host "  [+] Set BdActr$domainNetBIOS`1 as owner of $($randomDC.Name)" -ForegroundColor Green
+                Write-Host "  [+] Set BdActr$domainNetBIOS" + "1 as owner of $($randomDC.Name)" -ForegroundColor Green
             }
         }
     }
@@ -181,7 +180,7 @@ function Invoke-ModuleADDelegations {
         $domainObj = [ADSI]("LDAP://$rwdcFQDN/$domainDN")
         
         # Full Control for all objects
-        $badActor7 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`7" } -ErrorAction SilentlyContinue
+        $badActor7 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "7" } -ErrorAction SilentlyContinue
         if ($badActor7) {
             $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor7.SID)
             $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"GenericAll"
@@ -190,11 +189,11 @@ function Invoke-ModuleADDelegations {
             $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSID, $aceRight, $aceType, $aceInheritance)
             $domainObj.psbase.objectSecurity.AddAccessRule($ace)
             $domainObj.psbase.commitchanges()
-            Write-Host "  [+] Assigned Full Control on Domain NC to BdActr$domainNetBIOS`7" -ForegroundColor Green
+            Write-Host "  [+] Assigned Full Control on Domain NC to BdActr$domainNetBIOS" + "7" -ForegroundColor Green
         }
         
         # Full Control for Computer objects only
-        $badActor8 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`8" } -ErrorAction SilentlyContinue
+        $badActor8 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "8" } -ErrorAction SilentlyContinue
         if ($badActor8) {
             $computerSchemaGUID = "bf967a86-0de6-11d0-a285-00aa003049e2"
             $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor8.SID)
@@ -204,7 +203,7 @@ function Invoke-ModuleADDelegations {
             $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSID, $aceRight, $aceType, $aceInheritance, $computerSchemaGUID)
             $domainObj.psbase.objectSecurity.AddAccessRule($ace)
             $domainObj.psbase.commitchanges()
-            Write-Host "  [+] Assigned Full Control on Computer objects to BdActr$domainNetBIOS`8" -ForegroundColor Green
+            Write-Host "  [+] Assigned Full Control on Computer objects to BdActr$domainNetBIOS" + "8" -ForegroundColor Green
         }
     }
     catch {
@@ -232,30 +231,30 @@ function Invoke-ModuleADDelegations {
     # Add non-admin accounts to protected groups
     Write-Host "Adding non-admin accounts to protected groups..." -ForegroundColor Yellow
     try {
-        $badActor10 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`10" } -ErrorAction SilentlyContinue
+        $badActor10 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "10" } -ErrorAction SilentlyContinue
         if ($badActor10) {
             $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
             if ($accountOpsGroup) {
                 Add-ADGroupMember -Identity $accountOpsGroup -Members $badActor10 -ErrorAction SilentlyContinue
-                Write-Host "  [+] Added BdActr$domainNetBIOS`10 to Account Operators" -ForegroundColor Green
+                Write-Host "  [+] Added BdActr$domainNetBIOS" + "10 to Account Operators" -ForegroundColor Green
             }
         }
         
-        $badActor11 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`11" } -ErrorAction SilentlyContinue
+        $badActor11 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "11" } -ErrorAction SilentlyContinue
         if ($badActor11) {
             $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
             if ($backupOpsGroup) {
                 Add-ADGroupMember -Identity $backupOpsGroup -Members $badActor11 -ErrorAction SilentlyContinue
-                Write-Host "  [+] Added BdActr$domainNetBIOS`11 to Backup Operators" -ForegroundColor Green
+                Write-Host "  [+] Added BdActr$domainNetBIOS" + "11 to Backup Operators" -ForegroundColor Green
             }
         }
         
-        $badActor12 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`12" } -ErrorAction SilentlyContinue
+        $badActor12 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "12" } -ErrorAction SilentlyContinue
         if ($badActor12) {
             $serverOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
             if ($serverOpsGroup) {
                 Add-ADGroupMember -Identity $serverOpsGroup -Members $badActor12 -ErrorAction SilentlyContinue
-                Write-Host "  [+] Added BdActr$domainNetBIOS`12 to Server Operators" -ForegroundColor Green
+                Write-Host "  [+] Added BdActr$domainNetBIOS" + "12 to Server Operators" -ForegroundColor Green
             }
         }
     }
@@ -269,7 +268,7 @@ function Invoke-ModuleADDelegations {
     try {
         $domainObj = [ADSI]("LDAP://$rwdcFQDN/$domainDN")
         
-        $badActor17 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`17" } -ErrorAction SilentlyContinue
+        $badActor17 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "17" } -ErrorAction SilentlyContinue
         if ($badActor17) {
             $replicateChangesAllGUID = "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"
             $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor17.SID)
@@ -278,17 +277,17 @@ function Invoke-ModuleADDelegations {
             $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"None"
             $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSID, $aceRight, $aceType, $replicateChangesAllGUID, $aceInheritance)
             $domainObj.psbase.objectSecurity.AddAccessRule($ace)
-            Write-Host "  [+] Granted Replicate Changes All to BdActr$domainNetBIOS`17" -ForegroundColor Green
+            Write-Host "  [+] Granted Replicate Changes All to BdActr$domainNetBIOS" + "17" -ForegroundColor Green
         }
         
-        $badActor18 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`18" } -ErrorAction SilentlyContinue
+        $badActor18 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "18" } -ErrorAction SilentlyContinue
         if ($badActor18) {
             $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor18.SID)
             $domainObj.psbase.objectSecurity.SetOwner($badActorSID)
-            Write-Host "  [+] Set BdActr$domainNetBIOS`18 as owner of Domain NC" -ForegroundColor Green
+            Write-Host "  [+] Set BdActr$domainNetBIOS" + "18 as owner of Domain NC" -ForegroundColor Green
         }
         
-        $badActor19 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`19" } -ErrorAction SilentlyContinue
+        $badActor19 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS" + "19" } -ErrorAction SilentlyContinue
         if ($badActor19) {
             $badActorSID = New-Object System.Security.Principal.SecurityIdentifier($badActor19.SID)
             $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"WriteDACL"
@@ -296,7 +295,7 @@ function Invoke-ModuleADDelegations {
             $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"None"
             $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($badActorSID, $aceRight, $aceType, $aceInheritance)
             $domainObj.psbase.objectSecurity.AddAccessRule($ace)
-            Write-Host "  [+] Granted WriteDACL to BdActr$domainNetBIOS`19" -ForegroundColor Green
+            Write-Host "  [+] Granted WriteDACL to BdActr$domainNetBIOS" + "19" -ForegroundColor Green
         }
         
         $domainObj.psbase.commitchanges()
