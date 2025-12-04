@@ -67,11 +67,19 @@ function Invoke-ModuleADDelegations {
     # Enable Inheritance on AdminSDHolder
     Write-Host "Enabling inheritance on AdminSDHolder..." -ForegroundColor Yellow
     try {
+        Write-Host "  [DEBUG] Creating LDAP binding to AdminSDHolder..." -ForegroundColor Gray
         $adminSDHolder = [ADSI]("LDAP://$rwdcFQDN/$adminSDHolderDN")
-        $dacl = $adminSDHolder.psbase.objectSecurity
+        Write-Host "  [DEBUG] Got object, type: $($adminSDHolder.GetType().Name)" -ForegroundColor Gray
         
+        Write-Host "  [DEBUG] Getting objectSecurity..." -ForegroundColor Gray
+        $dacl = $adminSDHolder.psbase.objectSecurity
+        Write-Host "  [DEBUG] Got dacl, type: $($dacl.GetType().Name)" -ForegroundColor Gray
+        
+        Write-Host "  [DEBUG] Checking protection state..." -ForegroundColor Gray
         if ($dacl.get_AreAccessRulesProtected()) {
+            Write-Host "  [DEBUG] Protection is enabled, disabling..." -ForegroundColor Gray
             $dacl.SetAccessRuleProtection($false, $true)
+            Write-Host "  [DEBUG] Calling commitchanges..." -ForegroundColor Gray
             $adminSDHolder.psbase.commitchanges()
             Write-Host "  [+] Inheritance enabled on AdminSDHolder" -ForegroundColor Green
             $successCount++
