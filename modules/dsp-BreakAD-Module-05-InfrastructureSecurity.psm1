@@ -89,7 +89,6 @@ function Invoke-ModuleInfrastructureSecurity {
     # Modify schema admins and enterprise admins
     Write-Host "Modifying schema and enterprise admin groups..." -ForegroundColor Yellow
     try {
-        $testOU = "OU=TEST,$domainDN"
         $badActor100 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`100" } -ErrorAction SilentlyContinue
         $badActor101 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`101" } -ErrorAction SilentlyContinue
         
@@ -131,6 +130,7 @@ function Invoke-ModuleInfrastructureSecurity {
                 
                 # Grant replication rights to bad actor
                 $replicateChangesGUID = "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2"
+                $everyoneSecurityId = New-Object System.Security.Principal.SecurityIdentifier("S-1-1-0")
                 $badActorSecurityId = New-Object System.Security.Principal.SecurityIdentifier($badActor102.SID)
                 
                 $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"ExtendedRight"

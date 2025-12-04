@@ -110,11 +110,26 @@ Write-Host ""
 # BUILD ENVIRONMENT OBJECT
 ################################################################################
 # This is passed to all modules
+# $domain is ADDomain object
+# $primaryDC is ADDomainController object
 
 $Environment = @{
     Domain = $domain
     DomainController = $primaryDC
 }
+
+# Verify Environment has required properties
+if (-not $Environment.Domain.DistinguishedName) {
+    Write-Host "ERROR: Environment.Domain missing required properties" -ForegroundColor Red
+    exit 1
+}
+
+if (-not $Environment.DomainController.HostName) {
+    Write-Host "ERROR: Environment.DomainController missing HostName property" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "  [+] Environment structure validated" -ForegroundColor Green
 
 ################################################################################
 # DISCOVER AND LOAD MODULES

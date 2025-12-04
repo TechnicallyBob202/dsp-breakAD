@@ -9,7 +9,7 @@
 ##
 ################################################################################
 
-function Invoke-ADDelegations {
+function Invoke-ModuleADDelegations {
     <#
     .SYNOPSIS
         Creates AD delegations and security misconfigurations
@@ -44,9 +44,14 @@ function Invoke-ADDelegations {
     $domainDN = $domain.DistinguishedName
     $domainNetBIOS = $domain.NetBIOSName
     $domainSID = $domain.DomainSID.Value
+    $pdcFsmoFQDN = $domain.PDCEmulator
     $rwdcFQDN = $Environment.DomainController.HostName
     
     $forest = Get-ADForest -Current LocalComputer
+    $forestRootDomainFQDN = $forest.RootDomain
+    $forestRootDomain = Get-ADDomain $forestRootDomainFQDN
+    $forestRootDomainNetBIOS = $forestRootDomain.NetBIOSName
+    $forestRootDomainSID = $forestRootDomain.DomainSID.Value
     $forestSchemaFsmoFQDN = $forest.SchemaMaster
     $forestDnmFsmoFQDN = $forest.DomainNamingMaster
     $forestConfigNCDN = $forest.PartitionsContainer.Replace("CN=Partitions,","")
@@ -409,4 +414,4 @@ function Invoke-ADDelegations {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Invoke-ADDelegations
+Export-ModuleMember -Function Invoke-ModuleADDelegations

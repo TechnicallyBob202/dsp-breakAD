@@ -9,7 +9,7 @@
 ##
 ################################################################################
 
-function Invoke-AccountSecurityUsers {
+function Invoke-ModuleAccountSecurityUsers {
     <#
     .SYNOPSIS
         Creates user accounts with bad security configurations
@@ -403,4 +403,4 @@ function Invoke-AccountSecurityUsers {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Invoke-AccountSecurityUsers
+Export-ModuleMember -Function Invoke-ModuleAccountSecurityUsers

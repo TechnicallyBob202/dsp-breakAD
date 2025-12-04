@@ -9,7 +9,7 @@
 ##
 ################################################################################
 
-function Invoke-BadActors {
+function Invoke-ModuleBadActors {
     <#
     .SYNOPSIS
         Creates bad actor user accounts with security misconfigurations
@@ -134,4 +134,4 @@ function Invoke-BadActors {
     Write-Host ""
 }
 
-Export-ModuleMember -Function Invoke-BadActors
+Export-ModuleMember -Function Invoke-ModuleBadActors
