@@ -43,6 +43,9 @@ if (-not (Test-Path $Script:LogsPath)) {
 # Setup logging
 $Script:LogFile = Join-Path $Script:LogsPath "dsp-BreakAD-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 
+# Setup logging with transcript
+$Script:LogFile = Join-Path $Script:LogsPath "dsp-BreakAD-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+
 function Write-Log {
     param(
         [string]$Message,
@@ -60,12 +63,10 @@ function Write-Log {
         'ERROR' { Write-Host $logMessage -ForegroundColor Red }
         default { Write-Host $logMessage }
     }
-    
-    # Write to log file
-    Add-Content -Path $Script:LogFile -Value $logMessage -ErrorAction SilentlyContinue
 }
 
-# Write-Log is now available to all modules since it's defined before they load
+# Start transcript to capture all output
+Start-Transcript -Path $Script:LogFile -Append -ErrorAction SilentlyContinue | Out-Null
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
@@ -256,3 +257,6 @@ if ($failedCount -gt 0) {
 }
 Write-Log "Log saved to: $($Script:LogFile)" -Level INFO
 Write-Log "" -Level INFO
+
+# Stop transcript
+Stop-Transcript -ErrorAction SilentlyContinue | Out-Null

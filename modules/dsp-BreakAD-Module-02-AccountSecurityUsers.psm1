@@ -48,12 +48,12 @@ function Invoke-ModuleAccountSecurityUsers {
     # Ensure TEST OU exists
     $testOU = "OU=TEST,$domainDN"
     if (-not (Get-ADOrganizationalUnit -Filter { DistinguishedName -eq $testOU } -ErrorAction SilentlyContinue)) {
-        Write-Log "Creating TEST OU..." -Level INFO
+        Write-Host "Creating TEST OU..." -ForegroundColor Cyan
         New-ADOrganizationalUnit -Name "TEST" -Path $domainDN -ErrorAction SilentlyContinue
     }
     
-    Write-Log "Creating user accounts with bad security configurations..." -Level INFO
-    Write-Log "" -Level INFO
+    Write-Host "Creating user accounts with bad security configurations..." -ForegroundColor Cyan
+    Write-Host "" -ForegroundColor Cyan
     
     $successCount = 0
     $skipCount = 0
@@ -68,11 +68,11 @@ function Invoke-ModuleAccountSecurityUsers {
                 -DisplayName "USER$randomNr" -SamAccountName $samAccountName -UserPrincipalName "USER.$randomNr@$domainFQDN" `
                 -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force) -PasswordNeverExpires $true `
                 -Description "USER WITH: PASSWORD NEVER EXPIRES" -Server $rwdcFQDN -ErrorAction Stop
-            Write-Log "  Created: USER WITH: PASSWORD NEVER EXPIRES" -Level SUCCESS
+            Write-Host "  Created: USER WITH: PASSWORD NEVER EXPIRES" -ForegroundColor Green
             $successCount++
         }
         catch { 
-            Write-Log "  ERROR: USER WITH: PASSWORD NEVER EXPIRES - $_" -Level ERROR
+            Write-Host "  ERROR: USER WITH: PASSWORD NEVER EXPIRES - $_" -ForegroundColor Red
             $skipCount++
         }
     }
@@ -88,21 +88,21 @@ function Invoke-ModuleAccountSecurityUsers {
                 -DisplayName "USER$randomNr" -SamAccountName $samAccountName -UserPrincipalName "USER.$randomNr@$domainFQDN" `
                 -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force) -AccountNotDelegated $true `
                 -Description "USER WITH: SENSITIVE AND NOT DELEGATABLE" -Server $rwdcFQDN -ErrorAction Stop
-            Write-Log "  Created: USER WITH: SENSITIVE AND NOT DELEGATABLE" -Level SUCCESS
+            Write-Host "  Created: USER WITH: SENSITIVE AND NOT DELEGATABLE" -ForegroundColor Green
             $successCount++
         }
         catch { 
-            Write-Log "  ERROR: USER WITH: SENSITIVE AND NOT DELEGATABLE - $_" -Level ERROR
+            Write-Host "  ERROR: USER WITH: SENSITIVE AND NOT DELEGATABLE - $_" -ForegroundColor Red
             $skipCount++
         }
     }
     Start-Sleep -s 1
     
-    Write-Log "" -Level INFO
-    Write-Log "User account summary:" -Level INFO
-    Write-Log "  Created: $successCount" -Level SUCCESS
-    Write-Log "  Skipped: $skipCount" -Level WARNING
-    Write-Log "" -Level INFO
+    Write-Host "" -ForegroundColor Cyan
+    Write-Host "User account summary:" -ForegroundColor Cyan
+    Write-Host "  Created: $successCount" -ForegroundColor Green
+    Write-Host "  Skipped: $skipCount" -ForegroundColor Yellow
+    Write-Host "" -ForegroundColor Cyan
 }
 
 Export-ModuleMember -Function Invoke-ModuleAccountSecurityUsers

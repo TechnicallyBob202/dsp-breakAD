@@ -40,12 +40,12 @@ function Invoke-ModuleCertificateSecurity {
     $domainNetBIOS = $Environment.Domain.NetBIOSName
     $rwdcFQDN = $Environment.DomainController.HostName
     
-    Write-Log "" -Level INFO
-    Write-Log "=== MODULE 08: Certificate and Trust Security ===" -Level INFO
-    Write-Log "" -Level INFO
+    Write-Host "" -ForegroundColor Cyan
+    Write-Host "=== MODULE 08: Certificate and Trust Security ===" -ForegroundColor Cyan
+    Write-Host "" -ForegroundColor Cyan
     
     # Modify certificate template permissions
-    Write-Log "Modifying certificate template permissions..." -Level WARNING
+    Write-Host "Modifying certificate template permissions..." -ForegroundColor Yellow
     try {
         $badActor150 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`150" } -ErrorAction SilentlyContinue
         
@@ -63,32 +63,32 @@ function Invoke-ModuleCertificateSecurity {
                 $certTemplateObj.psbase.objectSecurity.AddAccessRule($ace)
                 $certTemplateObj.psbase.commitchanges()
                 
-                Write-Log "  [+] Granted GenericAll on certificate templates to bad actor" -Level SUCCESS
+                Write-Host "  [+] Granted GenericAll on certificate templates to bad actor" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Certificate template permission modification skipped" -Level WARNING
+                Write-Host "  [!] Certificate template permission modification skipped" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Enable autoenrollment for weak users
-    Write-Log "Enabling certificate autoenrollment..." -Level WARNING
+    Write-Host "Enabling certificate autoenrollment..." -ForegroundColor Yellow
     try {
         try {
             # Note: GPO modification via LDAP is complex; this is a placeholder for the concept
-            Write-Log "  [!] Certificate autoenrollment requires GPO or registry modification - partially skipped" -Level WARNING
+            Write-Host "  [!] Certificate autoenrollment requires GPO or registry modification - partially skipped" -ForegroundColor Yellow
         }
         catch {
-            Write-Log "  [!] Autoenrollment configuration skipped" -Level WARNING
+            Write-Host "  [!] Autoenrollment configuration skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Grant CA permissions to bad actors
-    Write-Log "Granting CA permissions to bad actors..." -Level WARNING
+    Write-Host "Granting CA permissions to bad actors..." -ForegroundColor Yellow
     try {
         $badActor151 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`151" } -ErrorAction SilentlyContinue
         $badActor152 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`152" } -ErrorAction SilentlyContinue
@@ -122,18 +122,18 @@ function Invoke-ModuleCertificateSecurity {
                 }
                 
                 $caObj.psbase.commitchanges()
-                Write-Log "  [+] Granted CA permissions to $grantedCount bad actors" -Level SUCCESS
+                Write-Host "  [+] Granted CA permissions to $grantedCount bad actors" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] CA permission grant skipped" -Level WARNING
+                Write-Host "  [!] CA permission grant skipped" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Modify CRL distribution points
-    Write-Log "Modifying CRL distribution points..." -Level WARNING
+    Write-Host "Modifying CRL distribution points..." -ForegroundColor Yellow
     try {
         $crlDN = "CN=CDP,CN=Public Key Services,CN=Services,CN=Configuration,$domainDN"
         $crlExists = [ADSI]::Exists("LDAP://$rwdcFQDN/$crlDN")
@@ -144,18 +144,18 @@ function Invoke-ModuleCertificateSecurity {
                 # Set dangerous CRL checking (disable validation)
                 $crlObj.Put("msPKI-Enrollment-Flag", 0)
                 $crlObj.SetInfo()
-                Write-Log "  [+] Modified CRL distribution point settings" -Level SUCCESS
+                Write-Host "  [+] Modified CRL distribution point settings" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] CRL modification skipped" -Level WARNING
+                Write-Host "  [!] CRL modification skipped" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Configure weak certificate chain validation
-    Write-Log "Configuring weak certificate validation..." -Level WARNING
+    Write-Host "Configuring weak certificate validation..." -ForegroundColor Yellow
     try {
         $caContainerDN = "CN=Public Key Services,CN=Services,CN=Configuration,$domainDN"
         $caContainerExists = [ADSI]::Exists("LDAP://$rwdcFQDN/$caContainerDN")
@@ -166,18 +166,18 @@ function Invoke-ModuleCertificateSecurity {
                 # Disable strict certificate chain validation
                 $caContainer.Put("msPKI-Private-Key-Recovery-Enabled", "TRUE")
                 $caContainer.SetInfo()
-                Write-Log "  [+] Weakened certificate chain validation" -Level SUCCESS
+                Write-Host "  [+] Weakened certificate chain validation" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Certificate validation weakening skipped" -Level WARNING
+                Write-Host "  [!] Certificate validation weakening skipped" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Enable LDAP to SSL fallback (dangerous)
-    Write-Log "Enabling LDAP to SSL fallback..." -Level WARNING
+    Write-Host "Enabling LDAP to SSL fallback..." -ForegroundColor Yellow
     try {
         $badActor153 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`153" } -ErrorAction SilentlyContinue
         
@@ -193,34 +193,34 @@ function Invoke-ModuleCertificateSecurity {
                 $domainObj.psbase.objectSecurity.AddAccessRule($ace)
                 $domainObj.psbase.commitchanges()
                 
-                Write-Log "  [+] Enabled LDAP fallback permissions" -Level SUCCESS
+                Write-Host "  [+] Enabled LDAP fallback permissions" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] LDAP fallback configuration skipped" -Level WARNING
+                Write-Host "  [!] LDAP fallback configuration skipped" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Disable certificate pinning
-    Write-Log "Disabling certificate pinning..." -Level WARNING
+    Write-Host "Disabling certificate pinning..." -ForegroundColor Yellow
     try {
         try {
             # Registry-based certificate pinning disable (if running locally)
             $regPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\CurrentVersion\Internet Settings"
             Set-ItemProperty -Path $regPath -Name "ZoneMap_AllowUserDelegateCertificates" -Value 1 -ErrorAction SilentlyContinue
-            Write-Log "  [+] Disabled certificate pinning" -Level SUCCESS
+            Write-Host "  [+] Disabled certificate pinning" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] Certificate pinning disable skipped" -Level WARNING
+            Write-Host "  [!] Certificate pinning disable skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Grant dangerous permissions on NTAuthCertificates
-    Write-Log "Modifying NTAuthCertificates permissions..." -Level WARNING
+    Write-Host "Modifying NTAuthCertificates permissions..." -ForegroundColor Yellow
     try {
         $badActor154 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`154" } -ErrorAction SilentlyContinue
         
@@ -238,34 +238,34 @@ function Invoke-ModuleCertificateSecurity {
                 $ntAuthObj.psbase.objectSecurity.AddAccessRule($ace)
                 $ntAuthObj.psbase.commitchanges()
                 
-                Write-Log "  [+] Granted GenericWrite on NTAuthCertificates to bad actor" -Level SUCCESS
+                Write-Host "  [+] Granted GenericWrite on NTAuthCertificates to bad actor" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] NTAuthCertificates modification skipped" -Level WARNING
+                Write-Host "  [!] NTAuthCertificates modification skipped" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Configure certificate validity period weakening
-    Write-Log "Weakening certificate validity periods..." -Level WARNING
+    Write-Host "Weakening certificate validity periods..." -ForegroundColor Yellow
     try {
         try {
             # Set registry for weaker cert validation (conceptual)
             $regPath = "HKLM:\SOFTWARE\Policies\Microsoft\Cryptography"
             Set-ItemProperty -Path $regPath -Name "DisableCertificateExpirationCheck" -Value 1 -ErrorAction SilentlyContinue
-            Write-Log "  [+] Weakened certificate validity period enforcement" -Level SUCCESS
+            Write-Host "  [+] Weakened certificate validity period enforcement" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] Certificate validity weakening skipped" -Level WARNING
+            Write-Host "  [!] Certificate validity weakening skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
-    Write-Log "Module 08 completed" -Level SUCCESS
-    Write-Log "" -Level INFO
+    Write-Host "Module 08 completed" -ForegroundColor Green
+    Write-Host "" -ForegroundColor Cyan
 }
 
 Export-ModuleMember -Function Invoke-ModuleCertificateSecurity

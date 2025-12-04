@@ -38,12 +38,12 @@ function Invoke-ModuleGroupPolicySecurity {
     
     $domainNetBIOS = $Environment.Domain.NetBIOSName
     
-    Write-Log "" -Level INFO
-    Write-Log "=== MODULE 06: Group Policy Security ===" -Level INFO
-    Write-Log "" -Level INFO
+    Write-Host "" -ForegroundColor Cyan
+    Write-Host "=== MODULE 06: Group Policy Security ===" -ForegroundColor Cyan
+    Write-Host "" -ForegroundColor Cyan
     
     # Modify Default Domain Policy settings
-    Write-Log "Modifying Default Domain Policy..." -Level WARNING
+    Write-Host "Modifying Default Domain Policy..." -ForegroundColor Yellow
     try {
         $defaultPolicy = Get-GPO -Name "Default Domain Policy" -ErrorAction SilentlyContinue
         if ($defaultPolicy) {
@@ -51,18 +51,18 @@ function Invoke-ModuleGroupPolicySecurity {
                 # Set weak password settings
                 Set-GPRegistryValue -Name "Default Domain Policy" -Key "HKLM\System\CurrentControlSet\Services\Netlogon\Parameters" `
                     -ValueName "StrictSecurityChannelRequirement" -Value 0 -Type DWORD -ErrorAction SilentlyContinue
-                Write-Log "  [+] Disabled strict security channel requirement" -Level SUCCESS
+                Write-Host "  [+] Disabled strict security channel requirement" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error modifying Default Domain Policy: $_" -Level WARNING
+                Write-Host "  [!] Error modifying Default Domain Policy: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Grant bad actors permissions on GPOs
-    Write-Log "Granting bad actors permissions on GPOs..." -Level WARNING
+    Write-Host "Granting bad actors permissions on GPOs..." -ForegroundColor Yellow
     try {
         $gpos = Get-GPO -All -ErrorAction SilentlyContinue
         $badActor110 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`110" } -ErrorAction SilentlyContinue
@@ -79,22 +79,22 @@ function Invoke-ModuleGroupPolicySecurity {
             }
         }
         
-        Write-Log "  [+] Granted bad actors permissions on $grantCount GPOs" -Level SUCCESS
+        Write-Host "  [+] Granted bad actors permissions on $grantCount GPOs" -ForegroundColor Green
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Disable audit policies
-    Write-Log "Disabling security audit policies..." -Level WARNING
+    Write-Host "Disabling security audit policies..." -ForegroundColor Yellow
     try {
         # These would typically be set via auditpol command or Group Policy
-        Write-Log "  [!] Audit policy changes require elevated registry/auditpol access - skipped" -Level WARNING
+        Write-Host "  [!] Audit policy changes require elevated registry/auditpol access - skipped" -ForegroundColor Yellow
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Configure weak password policy via GPO
-    Write-Log "Configuring weak password policies..." -Level WARNING
+    Write-Host "Configuring weak password policies..." -ForegroundColor Yellow
     try {
         $defaultPolicy = Get-GPO -Name "Default Domain Policy" -ErrorAction SilentlyContinue
         if ($defaultPolicy) {
@@ -107,18 +107,18 @@ function Invoke-ModuleGroupPolicySecurity {
                 Set-GPRegistryValue -Name "Default Domain Policy" -Key "HKLM\System\CurrentControlSet\Services\Netlogon\Parameters" `
                     -ValueName "PasswordComplexity" -Value 0 -Type DWORD -ErrorAction SilentlyContinue
                 
-                Write-Log "  [+] Configured weak password policies" -Level SUCCESS
+                Write-Host "  [+] Configured weak password policies" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error configuring password policies: $_" -Level WARNING
+                Write-Host "  [!] Error configuring password policies: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Modify UAC settings via GPO
-    Write-Log "Modifying UAC settings..." -Level WARNING
+    Write-Host "Modifying UAC settings..." -ForegroundColor Yellow
     try {
         $defaultPolicy = Get-GPO -Name "Default Domain Policy" -ErrorAction SilentlyContinue
         if ($defaultPolicy) {
@@ -127,18 +127,18 @@ function Invoke-ModuleGroupPolicySecurity {
                 Set-GPRegistryValue -Name "Default Domain Policy" -Key "HKLM\Software\Microsoft\Windows\CurrentVersion\Policies\System" `
                     -ValueName "EnableLUA" -Value 0 -Type DWORD -ErrorAction SilentlyContinue
                 
-                Write-Log "  [+] Disabled UAC via Group Policy" -Level SUCCESS
+                Write-Host "  [+] Disabled UAC via Group Policy" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error modifying UAC: $_" -Level WARNING
+                Write-Host "  [!] Error modifying UAC: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Disable Windows Defender via GPO
-    Write-Log "Disabling security software policies..." -Level WARNING
+    Write-Host "Disabling security software policies..." -ForegroundColor Yellow
     try {
         $defaultPolicy = Get-GPO -Name "Default Domain Policy" -ErrorAction SilentlyContinue
         if ($defaultPolicy) {
@@ -147,18 +147,18 @@ function Invoke-ModuleGroupPolicySecurity {
                 Set-GPRegistryValue -Name "Default Domain Policy" -Key "HKLM\Software\Policies\Microsoft\Windows Defender" `
                     -ValueName "DisableAntiSpyware" -Value 1 -Type DWORD -ErrorAction SilentlyContinue
                 
-                Write-Log "  [+] Disabled Windows Defender via Group Policy" -Level SUCCESS
+                Write-Host "  [+] Disabled Windows Defender via Group Policy" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error disabling Defender: $_" -Level WARNING
+                Write-Host "  [!] Error disabling Defender: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Configure dangerous account lockout settings
-    Write-Log "Configuring dangerous account lockout settings..." -Level WARNING
+    Write-Host "Configuring dangerous account lockout settings..." -ForegroundColor Yellow
     try {
         $defaultPolicy = Get-GPO -Name "Default Domain Policy" -ErrorAction SilentlyContinue
         if ($defaultPolicy) {
@@ -171,18 +171,18 @@ function Invoke-ModuleGroupPolicySecurity {
                 Set-GPRegistryValue -Name "Default Domain Policy" -Key "HKLM\System\CurrentControlSet\Services\Netlogon\Parameters" `
                     -ValueName "LockoutDuration" -Value 1 -Type DWORD -ErrorAction SilentlyContinue
                 
-                Write-Log "  [+] Configured weak account lockout settings" -Level SUCCESS
+                Write-Host "  [+] Configured weak account lockout settings" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error configuring lockout: $_" -Level WARNING
+                Write-Host "  [!] Error configuring lockout: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Enable guest account via GPO
-    Write-Log "Enabling guest account access..." -Level WARNING
+    Write-Host "Enabling guest account access..." -ForegroundColor Yellow
     try {
         $defaultPolicy = Get-GPO -Name "Default Domain Policy" -ErrorAction SilentlyContinue
         if ($defaultPolicy) {
@@ -191,18 +191,18 @@ function Invoke-ModuleGroupPolicySecurity {
                 Set-GPRegistryValue -Name "Default Domain Policy" -Key "HKLM\System\CurrentControlSet\Control\Lsa" `
                     -ValueName "RestrictAnonymous" -Value 0 -Type DWORD -ErrorAction SilentlyContinue
                 
-                Write-Log "  [+] Enabled null session access" -Level SUCCESS
+                Write-Host "  [+] Enabled null session access" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error enabling guest access: $_" -Level WARNING
+                Write-Host "  [!] Error enabling guest access: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Disable SMB signing
-    Write-Log "Disabling SMB signing..." -Level WARNING
+    Write-Host "Disabling SMB signing..." -ForegroundColor Yellow
     try {
         $defaultPolicy = Get-GPO -Name "Default Domain Policy" -ErrorAction SilentlyContinue
         if ($defaultPolicy) {
@@ -213,18 +213,18 @@ function Invoke-ModuleGroupPolicySecurity {
                 Set-GPRegistryValue -Name "Default Domain Policy" -Key "HKLM\System\CurrentControlSet\Services\LanmanWorkstation\Parameters" `
                     -ValueName "RequireSecuritySignature" -Value 0 -Type DWORD -ErrorAction SilentlyContinue
                 
-                Write-Log "  [+] Disabled SMB signing via Group Policy" -Level SUCCESS
+                Write-Host "  [+] Disabled SMB signing via Group Policy" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error disabling SMB signing: $_" -Level WARNING
+                Write-Host "  [!] Error disabling SMB signing: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Modify PowerShell execution policy via GPO
-    Write-Log "Modifying PowerShell execution policy..." -Level WARNING
+    Write-Host "Modifying PowerShell execution policy..." -ForegroundColor Yellow
     try {
         $defaultPolicy = Get-GPO -Name "Default Domain Policy" -ErrorAction SilentlyContinue
         if ($defaultPolicy) {
@@ -232,18 +232,18 @@ function Invoke-ModuleGroupPolicySecurity {
                 Set-GPRegistryValue -Name "Default Domain Policy" -Key "HKLM\Software\Policies\Microsoft\Windows\PowerShell" `
                     -ValueName "ExecutionPolicy" -Value "Unrestricted" -Type String -ErrorAction SilentlyContinue
                 
-                Write-Log "  [+] Set PowerShell execution policy to Unrestricted" -Level SUCCESS
+                Write-Host "  [+] Set PowerShell execution policy to Unrestricted" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error setting execution policy: $_" -Level WARNING
+                Write-Host "  [!] Error setting execution policy: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
-    Write-Log "Module 06 completed" -Level SUCCESS
-    Write-Log "" -Level INFO
+    Write-Host "Module 06 completed" -ForegroundColor Green
+    Write-Host "" -ForegroundColor Cyan
 }
 
 Export-ModuleMember -Function Invoke-ModuleGroupPolicySecurity

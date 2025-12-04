@@ -40,12 +40,12 @@ function Invoke-ModuleInfrastructureSecurity {
     $domainNetBIOS = $Environment.Domain.NetBIOSName
     $rwdcFQDN = $Environment.DomainController.HostName
     
-    Write-Log "" -Level INFO
-    Write-Log "=== MODULE 05: Infrastructure Security ===" -Level INFO
-    Write-Log "" -Level INFO
+    Write-Host "" -ForegroundColor Cyan
+    Write-Host "=== MODULE 05: Infrastructure Security ===" -ForegroundColor Cyan
+    Write-Host "" -ForegroundColor Cyan
     
     # Modify DC computer account userAccountControl
-    Write-Log "Modifying DC computer account settings..." -Level WARNING
+    Write-Host "Modifying DC computer account settings..." -ForegroundColor Yellow
     try {
         $dcComputer = Get-ADComputer -Filter { DNSHostName -eq $rwdcFQDN } -ErrorAction SilentlyContinue
         if ($dcComputer) {
@@ -55,36 +55,36 @@ function Invoke-ModuleInfrastructureSecurity {
                 $uac = $uac -band -bnot 0x100000  # Remove TRUSTED_FOR_DELEGATION
                 $uac = $uac -band -bnot 0x80000   # Remove NOT_DELEGATED
                 Set-ADComputer -Identity $dcComputer -Replace @{"userAccountControl" = $uac}
-                Write-Log "  [+] Modified DC computer account flags" -Level SUCCESS
+                Write-Host "  [+] Modified DC computer account flags" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error modifying DC account: $_" -Level WARNING
+                Write-Host "  [!] Error modifying DC account: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Configure dangerous delegation on DC
-    Write-Log "Configuring delegation on DC computer..." -Level WARNING
+    Write-Host "Configuring delegation on DC computer..." -ForegroundColor Yellow
     try {
         $dcComputer = Get-ADComputer -Filter { DNSHostName -eq $rwdcFQDN } -ErrorAction SilentlyContinue
         if ($dcComputer) {
             try {
                 # Enable unconstrained delegation (dangerous for DC)
                 Set-ADComputer -Identity $dcComputer -TrustedForDelegation $true
-                Write-Log "  [+] Enabled unconstrained delegation on DC" -Level SUCCESS
+                Write-Host "  [+] Enabled unconstrained delegation on DC" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error: $_" -Level WARNING
+                Write-Host "  [!] Error: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Modify schema admins and enterprise admins
-    Write-Log "Modifying schema and enterprise admin groups..." -Level WARNING
+    Write-Host "Modifying schema and enterprise admin groups..." -ForegroundColor Yellow
     try {
         $badActor100 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`100" } -ErrorAction SilentlyContinue
         $badActor101 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`101" } -ErrorAction SilentlyContinue
@@ -110,13 +110,13 @@ function Invoke-ModuleInfrastructureSecurity {
             catch { }
         }
         
-        Write-Log "  [+] Added bad actors to forest-level groups: $addedCount" -Level SUCCESS
+        Write-Host "  [+] Added bad actors to forest-level groups: $addedCount" -ForegroundColor Green
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Configure dangerous replication settings
-    Write-Log "Configuring dangerous replication settings..." -Level WARNING
+    Write-Host "Configuring dangerous replication settings..." -ForegroundColor Yellow
     try {
         # Find a bad actor to assign dangerous perms
         $badActor102 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`102" } -ErrorAction SilentlyContinue
@@ -137,18 +137,18 @@ function Invoke-ModuleInfrastructureSecurity {
                 $dcObj.psbase.objectSecurity.AddAccessRule($ace)
                 $dcObj.psbase.commitchanges()
                 
-                Write-Log "  [+] Granted dangerous replication rights to bad actor" -Level SUCCESS
+                Write-Host "  [+] Granted dangerous replication rights to bad actor" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error setting replication rights: $_" -Level WARNING
+                Write-Host "  [!] Error setting replication rights: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Configure DomainDNSZones permissions
-    Write-Log "Configuring DomainDNSZones permissions..." -Level WARNING
+    Write-Host "Configuring DomainDNSZones permissions..." -ForegroundColor Yellow
     try {
         $badActor103 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`103" } -ErrorAction SilentlyContinue
         
@@ -167,18 +167,18 @@ function Invoke-ModuleInfrastructureSecurity {
                 $dnsZoneObj.psbase.objectSecurity.AddAccessRule($ace)
                 $dnsZoneObj.psbase.commitchanges()
                 
-                Write-Log "  [+] Granted Full Control on DomainDnsZones" -Level SUCCESS
+                Write-Host "  [+] Granted Full Control on DomainDnsZones" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error setting DNS zone permissions: $_" -Level WARNING
+                Write-Host "  [!] Error setting DNS zone permissions: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Modify schema permissions
-    Write-Log "Modifying schema permissions..." -Level WARNING
+    Write-Host "Modifying schema permissions..." -ForegroundColor Yellow
     try {
         $badActor104 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`104" } -ErrorAction SilentlyContinue
         
@@ -199,19 +199,19 @@ function Invoke-ModuleInfrastructureSecurity {
                     $schemaObj.psbase.objectSecurity.AddAccessRule($ace)
                     $schemaObj.psbase.commitchanges()
                     
-                    Write-Log "  [+] Granted Full Control on Schema" -Level SUCCESS
+                    Write-Host "  [+] Granted Full Control on Schema" -ForegroundColor Green
                 }
             }
             catch {
-                Write-Log "  [!] Error setting schema permissions: $_" -Level WARNING
+                Write-Host "  [!] Error setting schema permissions: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Modify configuration partition permissions
-    Write-Log "Modifying configuration partition permissions..." -Level WARNING
+    Write-Host "Modifying configuration partition permissions..." -ForegroundColor Yellow
     try {
         $badActor105 = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`105" } -ErrorAction SilentlyContinue
         
@@ -229,59 +229,59 @@ function Invoke-ModuleInfrastructureSecurity {
                 $configObj.psbase.objectSecurity.AddAccessRule($ace)
                 $configObj.psbase.commitchanges()
                 
-                Write-Log "  [+] Granted Full Control on Configuration" -Level SUCCESS
+                Write-Host "  [+] Granted Full Control on Configuration" -ForegroundColor Green
             }
             catch {
-                Write-Log "  [!] Error setting config permissions: $_" -Level WARNING
+                Write-Host "  [!] Error setting config permissions: $_" -ForegroundColor Yellow
             }
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Set DC to allow anonymous access
-    Write-Log "Configuring anonymous access settings..." -Level WARNING
+    Write-Host "Configuring anonymous access settings..." -ForegroundColor Yellow
     try {
         # Modify anonymousAccessPolicy registry setting
         try {
             # Note: This requires registry access on the DC
             # In lab scenarios, might need explicit credential passing
-            Write-Log "  [!] Anonymous access modification requires DC registry access - skipped" -Level WARNING
+            Write-Host "  [!] Anonymous access modification requires DC registry access - skipped" -ForegroundColor Yellow
         }
         catch {
-            Write-Log "  [!] Error: $_" -Level WARNING
+            Write-Host "  [!] Error: $_" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Disable LDAP signing requirement
-    Write-Log "Configuring LDAP signing settings..." -Level WARNING
+    Write-Host "Configuring LDAP signing settings..." -ForegroundColor Yellow
     try {
         # Modify domain policy for LDAP signing
         try {
             # Note: This requires Group Policy or registry modification
             # Usually requires: Set-GPRegistryValue or direct registry edit
-            Write-Log "  [!] LDAP signing modification requires DC registry/GPO access - skipped" -Level WARNING
+            Write-Host "  [!] LDAP signing modification requires DC registry/GPO access - skipped" -ForegroundColor Yellow
         }
         catch {
-            Write-Log "  [!] Error: $_" -Level WARNING
+            Write-Host "  [!] Error: $_" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Enable null session pipes
-    Write-Log "Configuring null session settings..." -Level WARNING
+    Write-Host "Configuring null session settings..." -ForegroundColor Yellow
     try {
         # Note: Null session access typically requires registry modifications
-        Write-Log "  [!] Null session configuration requires DC registry access - skipped" -Level WARNING
+        Write-Host "  [!] Null session configuration requires DC registry access - skipped" -ForegroundColor Yellow
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
-    Write-Log "Module 05 completed" -Level SUCCESS
-    Write-Log "" -Level INFO
+    Write-Host "Module 05 completed" -ForegroundColor Green
+    Write-Host "" -ForegroundColor Cyan
 }
 
 Export-ModuleMember -Function Invoke-ModuleInfrastructureSecurity

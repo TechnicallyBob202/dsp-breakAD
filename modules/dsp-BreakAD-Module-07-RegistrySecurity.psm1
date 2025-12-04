@@ -36,80 +36,80 @@ function Invoke-ModuleRegistrySecurity {
         [hashtable]$Environment
     )
     
-    Write-Log "" -Level INFO
-    Write-Log "=== MODULE 07: Registry and Authentication Security ===" -Level INFO
-    Write-Log "" -Level INFO
+    Write-Host "" -ForegroundColor Cyan
+    Write-Host "=== MODULE 07: Registry and Authentication Security ===" -ForegroundColor Cyan
+    Write-Host "" -ForegroundColor Cyan
     
     # Disable NTLMv2 enforcement
-    Write-Log "Disabling NTLMv2 enforcement..." -Level WARNING
+    Write-Host "Disabling NTLMv2 enforcement..." -ForegroundColor Yellow
     try {
         $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
         $regKey = "LmCompatibilityLevel"
         
         try {
             Set-ItemProperty -Path $regPath -Name $regKey -Value 3 -ErrorAction SilentlyContinue
-            Write-Log "  [+] Set LmCompatibilityLevel to 3 (NTLMv2 optional)" -Level SUCCESS
+            Write-Host "  [+] Set LmCompatibilityLevel to 3 (NTLMv2 optional)" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] Registry modification requires local admin on target system" -Level WARNING
+            Write-Host "  [!] Registry modification requires local admin on target system" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Enable LAN Manager hashing
-    Write-Log "Enabling LAN Manager hashing..." -Level WARNING
+    Write-Host "Enabling LAN Manager hashing..." -ForegroundColor Yellow
     try {
         $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
         $regKey = "NoLmHash"
         
         try {
             Set-ItemProperty -Path $regPath -Name $regKey -Value 0 -ErrorAction SilentlyContinue
-            Write-Log "  [+] Enabled LAN Manager hashing (NoLmHash = 0)" -Level SUCCESS
+            Write-Host "  [+] Enabled LAN Manager hashing (NoLmHash = 0)" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] Registry modification skipped" -Level WARNING
+            Write-Host "  [!] Registry modification skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Weaken Kerberos settings
-    Write-Log "Weakening Kerberos settings..." -Level WARNING
+    Write-Host "Weakening Kerberos settings..." -ForegroundColor Yellow
     try {
         $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\Parameters"
         
         try {
             # Disable DES encryption check
             Set-ItemProperty -Path $regPath -Name "SupportedEncryptionTypes" -Value 3 -ErrorAction SilentlyContinue
-            Write-Log "  [+] Set SupportedEncryptionTypes to allow weak encryption" -Level SUCCESS
+            Write-Host "  [+] Set SupportedEncryptionTypes to allow weak encryption" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] Kerberos registry modification skipped" -Level WARNING
+            Write-Host "  [!] Kerberos registry modification skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Disable credential guard
-    Write-Log "Disabling Credential Guard..." -Level WARNING
+    Write-Host "Disabling Credential Guard..." -ForegroundColor Yellow
     try {
         $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
         $regKey = "LsaCfgFlags"
         
         try {
             Set-ItemProperty -Path $regPath -Name $regKey -Value 0 -ErrorAction SilentlyContinue
-            Write-Log "  [+] Disabled Credential Guard (LsaCfgFlags = 0)" -Level SUCCESS
+            Write-Host "  [+] Disabled Credential Guard (LsaCfgFlags = 0)" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] Credential Guard setting skipped" -Level WARNING
+            Write-Host "  [!] Credential Guard setting skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Weaken SMB settings
-    Write-Log "Weakening SMB settings..." -Level WARNING
+    Write-Host "Weakening SMB settings..." -ForegroundColor Yellow
     try {
         $regPath = "HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"
         
@@ -118,116 +118,116 @@ function Invoke-ModuleRegistrySecurity {
             Set-ItemProperty -Path $regPath -Name "EncryptionLevel" -Value 0 -ErrorAction SilentlyContinue
             # Enable null sessions
             Set-ItemProperty -Path $regPath -Name "NullSessionPipes" -Value "COMSPEC,SPOOL" -ErrorAction SilentlyContinue
-            Write-Log "  [+] Weakened SMB encryption and session settings" -Level SUCCESS
+            Write-Host "  [+] Weakened SMB encryption and session settings" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] SMB setting modification skipped" -Level WARNING
+            Write-Host "  [!] SMB setting modification skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Disable null session restrictions
-    Write-Log "Disabling null session restrictions..." -Level WARNING
+    Write-Host "Disabling null session restrictions..." -ForegroundColor Yellow
     try {
         $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
         
         try {
             Set-ItemProperty -Path $regPath -Name "RestrictAnonymous" -Value 0 -ErrorAction SilentlyContinue
             Set-ItemProperty -Path $regPath -Name "EveryoneIncludesAnonymous" -Value 1 -ErrorAction SilentlyContinue
-            Write-Log "  [+] Disabled null session restrictions" -Level SUCCESS
+            Write-Host "  [+] Disabled null session restrictions" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] Null session setting modification skipped" -Level WARNING
+            Write-Host "  [!] Null session setting modification skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Enable anonymous enumeration
-    Write-Log "Enabling anonymous enumeration..." -Level WARNING
+    Write-Host "Enabling anonymous enumeration..." -ForegroundColor Yellow
     try {
         $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
         
         try {
             Set-ItemProperty -Path $regPath -Name "RestrictAnonymousSam" -Value 0 -ErrorAction SilentlyContinue
             Set-ItemProperty -Path $regPath -Name "RestrictAnonymousNetBios" -Value 0 -ErrorAction SilentlyContinue
-            Write-Log "  [+] Enabled anonymous SAM and NetBIOS enumeration" -Level SUCCESS
+            Write-Host "  [+] Enabled anonymous SAM and NetBIOS enumeration" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] Anonymous enumeration setting modification skipped" -Level WARNING
+            Write-Host "  [!] Anonymous enumeration setting modification skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Configure dangerous WinRM settings
-    Write-Log "Configuring dangerous WinRM settings..." -Level WARNING
+    Write-Host "Configuring dangerous WinRM settings..." -ForegroundColor Yellow
     try {
         $regPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service"
         
         try {
             Set-ItemProperty -Path $regPath -Name "AllowUnencryptedTraffic" -Value 1 -ErrorAction SilentlyContinue
-            Write-Log "  [+] Enabled unencrypted WinRM traffic" -Level SUCCESS
+            Write-Host "  [+] Enabled unencrypted WinRM traffic" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] WinRM setting modification skipped" -Level WARNING
+            Write-Host "  [!] WinRM setting modification skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Disable LSA protection
-    Write-Log "Disabling LSA protection..." -Level WARNING
+    Write-Host "Disabling LSA protection..." -ForegroundColor Yellow
     try {
         $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Lsa"
         $regKey = "RunAsPPL"
         
         try {
             Set-ItemProperty -Path $regPath -Name $regKey -Value 0 -ErrorAction SilentlyContinue
-            Write-Log "  [+] Disabled LSA protection (RunAsPPL = 0)" -Level SUCCESS
+            Write-Host "  [+] Disabled LSA protection (RunAsPPL = 0)" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] LSA protection setting modification skipped" -Level WARNING
+            Write-Host "  [!] LSA protection setting modification skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Disable MitigationOptions (Control Flow Guard and others)
-    Write-Log "Disabling security mitigations..." -Level WARNING
+    Write-Host "Disabling security mitigations..." -ForegroundColor Yellow
     try {
         $regPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Kernel"
         
         try {
             Set-ItemProperty -Path $regPath -Name "MitigationOptions" -Value 0 -ErrorAction SilentlyContinue
-            Write-Log "  [+] Disabled security mitigations" -Level SUCCESS
+            Write-Host "  [+] Disabled security mitigations" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] Mitigation options setting modification skipped" -Level WARNING
+            Write-Host "  [!] Mitigation options setting modification skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
     # Weaken RPC security
-    Write-Log "Weakening RPC security..." -Level WARNING
+    Write-Host "Weakening RPC security..." -ForegroundColor Yellow
     try {
         $regPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Rpc"
         
         try {
             Set-ItemProperty -Path $regPath -Name "EnableAuthEpResolution" -Value 0 -ErrorAction SilentlyContinue
-            Write-Log "  [+] Weakened RPC authentication endpoint resolution" -Level SUCCESS
+            Write-Host "  [+] Weakened RPC authentication endpoint resolution" -ForegroundColor Green
         }
         catch {
-            Write-Log "  [!] RPC security setting modification skipped" -Level WARNING
+            Write-Host "  [!] RPC security setting modification skipped" -ForegroundColor Yellow
         }
     }
-    catch { Write-Log "  [!] Error: $_" -Level WARNING }
-    Write-Log "" -Level INFO
+    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
+    Write-Host "" -ForegroundColor Cyan
     
-    Write-Log "Module 07 completed" -Level SUCCESS
-    Write-Log "" -Level INFO
+    Write-Host "Module 07 completed" -ForegroundColor Green
+    Write-Host "" -ForegroundColor Cyan
 }
 
 Export-ModuleMember -Function Invoke-ModuleRegistrySecurity
