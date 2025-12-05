@@ -110,8 +110,8 @@ elseif ($ModuleNames.Count -gt 0) {
 }
 else {
     Write-Log "Available modules:" -Level INFO
-    for ($i = 0; $i -lt $availableModules.Count; $i++) {
-        Write-Host "  $($i+1)) $($availableModules[$i])"
+    for ($i = 1; $i -lt $availableModules.Count; $i++) {
+        Write-Host "  $($i)) $($availableModules[$i])"
     }
     Write-Host ""
     $selection = Read-Host "Select modules to run (comma-separated numbers, or 0 for all)"
@@ -123,8 +123,8 @@ else {
         $selections = $selection -split "," | ForEach-Object { $_.Trim() }
         foreach ($sel in $selections) {
             if ([int]::TryParse($sel, [ref]$null)) {
-                $index = [int]$sel - 1
-                if ($index -ge 0 -and $index -lt $availableModules.Count) {
+                $index = [int]$sel
+                if ($index -gt 0 -and $index -lt $availableModules.Count) {
                     $selectedModules += $availableModules[$index]
                 }
             }
@@ -132,6 +132,12 @@ else {
     }
     
     Write-Log "Selected modules via interactive prompt: $($selectedModules -join ', ')" -Level INFO
+}
+
+# Ensure Preflight is always run first if not skipped
+if (-not $SkipPreflight -and "Preflight" -notin $selectedModules) {
+    $selectedModules = @("Preflight") + $selectedModules
+    Write-Log "Preflight prepended to module list (will run first)" -Level INFO
 }
 
 if ($selectedModules.Count -eq 0) {
