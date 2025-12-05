@@ -132,7 +132,10 @@ dsp-breakAD/
 
 **Target Category**: Account Security IOEs
 
-**IOEs Implemented**: 10 of 13
+**IOEs Implemented**: 11 of 13
+
+Plus 1 additional custom IOE:
+- **IOE 14**: Privileged accounts with weak Fine-Grained Password Policy (FGPP)
 
 **Account Naming**: All test accounts use `break-` prefix with short suffixes to stay under 20-character SAM limit
 
@@ -195,6 +198,21 @@ dsp-breakAD/
 - **Status**: SKIPPED
 - **Reason**: pwdLastSet cannot be reliably set post-creation via ADSI
 - **Config**: Disabled (commented in module)
+
+### IOE 14: Privileged Accounts with Weak Fine-Grained Password Policy
+- **Config**: `AccountSecurity_WeakFGPP=true`
+- **Action**: Creates FGPP with intentionally weak settings, applies to privileged accounts
+- **FGPP Settings**:
+  - MinPasswordLength: 4 (very weak)
+  - MinPasswordAge: 0 days
+  - MaxPasswordAge: 999 days (almost no expiration)
+  - PasswordHistoryCount: 0 (no history)
+  - LockoutThreshold: 0 (no lockout)
+  - LockoutDuration: 0 minutes
+  - ComplexityEnabled: False
+  - ReversibleEncryptionEnabled: True
+- **Target Accounts**: Applied to all `break-ppwd###` accounts (privileged)
+- **IOE Name**: "FGPP applied to privileged account" or similar
 
 ### Account Naming
 - **Format**: `break-{suffix}###` where ### is random 100-999

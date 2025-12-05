@@ -7,8 +7,12 @@
 #
 # IOEs Implemented: 11 of 13
 # Skipped IOEs:
+#   - IOE 1: Built-in Administrator recently used - CANNOT reset admin password
 #   - IOE 9: User accounts with old passwords (90+ days) - pwdLastSet cannot be set post-creation
 #   - IOE 13: Smart Card with old password - pwdLastSet cannot be set post-creation
+# 
+# New IOEs:
+#   - IOE 14: Privileged accounts with weak Fine-Grained Password Policy (FGPP)
 #
 # Author: Bob Lyons (bob@semperis.com)
 ################################################################################
@@ -257,7 +261,53 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "SKIP: pwdLastSet modification disabled" -Level INFO
             }
 
-            Write-Log "Successfully completed Module 2: Account Security" -Level SUCCESS
+            # IOE 14: Privileged Accounts with Weak Password Policy (FGPP)
+            If ($Environment.Config.AccountSecurity_WeakFGPP -eq $true) {
+                Write-Log "Enabling IOE: Privileged accounts with weak Fine-Grained Password Policy" -Level INFO
+                
+                Try {
+                    # Create FGPP object with weak settings
+                    $fgppName = "break-weakpwdpolicy"
+                    $fgppExists = Get-ADFineGrainedPasswordPolicy -Filter {Name -eq $fgppName} -ErrorAction SilentlyContinue
+                    
+                    If (-not $fgppExists) {
+                        # Create FGPP with intentionally weak settings
+                        $fgpp = New-ADFineGrainedPasswordPolicy -Name $fgppName `
+                            -DisplayName "Break: Weak Password Policy" `
+                            -Description "Weak password policy for privileged accounts" `
+                            -Precedence 1 `
+                            -MinPasswordLength 4 `
+                            -MinPasswordAge 0 `
+                            -MaxPasswordAge (New-TimeSpan -Days 999) `
+                            -PasswordHistoryCount 0 `
+                            -LockoutDuration (New-TimeSpan -Minutes 0) `
+                            -LockoutObservationWindow (New-TimeSpan -Minutes 0) `
+                            -LockoutThreshold 0 `
+                            -ComplexityEnabled $false `
+                            -ReversibleEncryptionEnabled $true `
+                            -PassThru -ErrorAction Stop
+                        
+                        Write-Log "PASS: Created weak Fine-Grained Password Policy: $fgppName" -Level SUCCESS
+                    }
+                    else {
+                        $fgpp = $fgppExists
+                        Write-Log "PASS: FGPP already exists: $fgppName" -Level SUCCESS
+                    }
+                    
+                    # Apply FGPP to privileged break-ppwd accounts
+                    $privilegedAccounts = Get-ADUser -Filter {SamAccountName -like "break-ppwd*"} -ErrorAction SilentlyContinue
+                    
+                    If ($privilegedAccounts) {
+                        foreach ($account in $privilegedAccounts) {
+                            Add-ADFineGrainedPasswordPolicySubject -Identity $fgpp -Subjects $account -ErrorAction SilentlyContinue
+                            Write-Log "PASS: Applied weak FGPP to privileged account: $($account.SamAccountName)" -Level SUCCESS
+                        }
+                    }
+                    
+                } Catch {
+                    Write-Log "FAIL: $_" -Level ERROR
+                }
+            }
 
         } Catch {
             Write-Log "Fatal error: $_" -Level ERROR
