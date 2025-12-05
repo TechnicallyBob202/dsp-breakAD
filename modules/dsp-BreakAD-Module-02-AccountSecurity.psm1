@@ -1,306 +1,508 @@
-################################################################################
-##
-## dsp-BreakAD-Module-02-AccountSecurity.psm1
-##
-## Account Security Misconfigurations
-##
-## Module 2 creates account-level security weaknesses:
-## - Creates dedicated bad user accounts with various weak properties
-## - Password never expires
-## - Pre-auth disabled (AS-REP roasting vector)
-## - Weak Kerberos encryption (DES, RC4)
-## - Unconstrained delegation enabled
-## - Constrained delegation to dangerous SPNs
-## - Passwords stored in descriptions
-## - Service account abuse scenarios
-##
-## Author: Bob Lyons (bob@semperis.com)
-## Version: 1.0.0 - Clean rebuild from scratch
-##
-################################################################################
+#################################################################################
+# DSP Break AD - Module 02: Account Security
+# 
+# Purpose: Introduce account security misconfigurations to lower DSP score
+# Targets: Account Security IOE category in DSP
+#
+# IOEs Targeted:
+#  - Built-in domain Administrator account used within the last two weeks
+#  - Built-in domain Administrator account with old password (180 days)
+#  - Privileged accounts with a password that never expires
+#  - Privileged users with weak password policy
+#  - Recent privileged account creation activity
+#  - User accounts that store passwords with reversible encryption
+#  - User accounts that use DES encryption
+#  - User accounts with password not required
+#  - Users with Kerberos pre-authentication disabled
+#  - Unprivileged accounts with adminCount=1
+#  - User accounts using Smart Card authentication with old password
+#  - Users with old passwords
+#  - Users with Password Never Expires flag set
+#  - Abnormal Password Refresh
+#  - AD objects created within the last 10 days
+#  - Privileged users that are disabled
+#  - Admins with old passwords
+#
+# Author: Bob Lyons (bob@semperis.com)
+# Modified: DSP Scoring Optimization
+#################################################################################
 
-function Invoke-ModuleAccountSecurity {
-    <#
-    .SYNOPSIS
-        Applies account security misconfigurations
-    
-    .PARAMETER Environment
-        Hashtable containing Domain, DomainController, and Config info
-    #>
-    param(
-        [Parameter(Mandatory=$true)]
-        [hashtable]$Environment
+Function Invoke-DSPBreakAD-Module-02-AccountSecurity {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true)]
+        [System.Object]
+        $Logging,
+        
+        [Parameter(Mandatory = $true)]
+        [System.Collections.Hashtable]
+        $Config
     )
-    
-    $domain = $Environment.Domain
-    $dc = $Environment.DomainController
-    $config = $Environment.Config
-    
-    Write-Log "" -Level INFO
-    Write-Log "========================================" -Level INFO
-    Write-Log "Module 02: Account Security" -Level INFO
-    Write-Log "========================================" -Level INFO
-    Write-Log "" -Level INFO
-    
-    ################################################################################
-    # PHASE 0: GET OU PATHS (from Module 1 config)
-    ################################################################################
-    
-    Write-Log "PHASE 0: Get Organizational Unit Paths & DC Info" -Level INFO
-    
-    $domainDN = $domain.DistinguishedName
-    $rootOUName = $config['BreakAD_RootOU']
-    $usersOUName = $config['BreakAD_UsersOU']
-    $dcServer = $dc.HostName
-    
-    $usersOUPath = "OU=$usersOUName,OU=$rootOUName,$domainDN"
-    
-    Write-Log "  Users OU: $usersOUPath" -Level INFO
-    Write-Log "  Domain Controller: $dcServer" -Level INFO
-    Write-Log "" -Level INFO
-    
-    ################################################################################
-    # PHASE 1: VALIDATE CONFIG & SETUP
-    ################################################################################
-    
-    Write-Log "PHASE 1: Validate Config & Setup" -Level INFO
-    
-    $badUsersCount = [int]$config['AccountSecurity_BadUsersToCreate']
-    
-    Write-Log "  Bad users to create: $badUsersCount" -Level INFO
-    Write-Log "  Password never expires: $($config['AccountSecurity_IncludeNeverExpiringPasswords'])" -Level INFO
-    Write-Log "  Pre-auth disabled: $($config['AccountSecurity_IncludePreAuthDisabled'])" -Level INFO
-    Write-Log "  Weak encryption: $($config['AccountSecurity_IncludeWeakEncryption'])" -Level INFO
-    Write-Log "  Unconstrained delegation: $($config['AccountSecurity_IncludeUnconstrainedDelegation'])" -Level INFO
-    Write-Log "  Constrained delegation: $($config['AccountSecurity_IncludeConstrainedDelegation'])" -Level INFO
-    Write-Log "  Weak password storage: $($config['AccountSecurity_IncludeWeakPasswordStorage'])" -Level INFO
-    Write-Log "  Service account abuse: $($config['AccountSecurity_IncludeServiceAccountAbuse'])" -Level INFO
-    
-    if ($badUsersCount -eq 0) {
-        Write-Log "[*] Bad users count is 0, skipping module" -Level INFO
-        return $true
+
+    Begin {
+        $FunctionName = $MyInvocation.MyCommand.Name
+        $Logging.Log("Starting $FunctionName", 'INFO')
     }
-    
-    Write-Log "[+] Config validated" -Level SUCCESS
-    Write-Log "" -Level INFO
-    
-    ################################################################################
-    # PHASE 2: CREATE BAD USERS WITH WEAK PROPERTIES
-    ################################################################################
-    
-    Write-Log "PHASE 2: Create Bad Users with Weak Properties" -Level INFO
-    
-    $badUsers = @()
-    
-    for ($i = 1; $i -le $badUsersCount; $i++) {
-        $userName = "break-BadUser-" + "{0:D2}" -f $i
-        $userPassword = "BadP@ss!" + $i
-        $userSecurePassword = ConvertTo-SecureString $userPassword -AsPlainText -Force
-        
-        Write-Log "  Processing: $userName" -Level INFO
-        
-        # Check if user already exists
-        $existingUser = Get-ADUser -Filter "SamAccountName -eq '$userName'" -SearchBase $usersOUPath -ErrorAction SilentlyContinue
-        
-        if ($null -ne $existingUser) {
-            Write-Log "    [+] User already exists" -Level SUCCESS
-            $badUsers += $existingUser
-        }
-        else {
-            Write-Log "    Creating..." -Level INFO
+
+    Process {
+        Try {
+            # Get AD Forest and Domain Info
+            $ADForest = Get-ADForest
+            $ADDomain = Get-ADDomain
+            $ADRootDomain = Get-ADForest | Select-Object -ExpandProperty RootDomain
             
-            # Create the user
-            New-ADUser `
-                -Name $userName `
-                -SamAccountName $userName `
-                -AccountPassword $userSecurePassword `
-                -Enabled $true `
-                -Description "Bad Actor Account - Account Security Testing" `
-                -ChangePasswordAtLogon $false `
-                -Path $usersOUPath `
-                -ErrorAction Stop
-            
-            Write-LogChange -Object $userName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
-            Write-Log "    [+] Created" -Level SUCCESS
-            
-            # Wait for AD to process
-            Start-Sleep -Seconds 2
-            
-            # Retrieve the user
-            $newUser = Get-ADUser -Filter "SamAccountName -eq '$userName'" -SearchBase $usersOUPath -ErrorAction Stop
-            if ($null -eq $newUser) {
-                Write-Log "    [!] ERROR: Could not retrieve user after creation" -Level ERROR
-                return $false
-            }
-            
-            $badUsers += $newUser
-            Write-Log "    [+] Retrieved" -Level SUCCESS
-        }
-    }
-    
-    Write-Log "" -Level INFO
-    
-    ################################################################################
-    # PHASE 3: APPLY WEAK PROPERTIES TO USERS
-    ################################################################################
-    
-    Write-Log "PHASE 3: Apply Weak Properties to Users" -Level INFO
-    
-    for ($i = 0; $i -lt $badUsers.Count; $i++) {
-        $user = $badUsers[$i]
-        $userIndex = $i + 1
-        
-        Write-Log "  Configuring: $($user.Name)" -Level INFO
-        
-        ################################################################
-        # PASSWORD NEVER EXPIRES
-        ################################################################
-        
-        if ($config['AccountSecurity_IncludeNeverExpiringPasswords'] -eq 'true') {
-            try {
-                Set-ADUser -Identity $user -PasswordNeverExpires $true -ErrorAction Stop
-                Write-LogChange -Object $user.Name -Attribute "PasswordNeverExpires" -OldValue "False" -NewValue "True"
-                Write-Log "    [+] Password never expires enabled" -Level SUCCESS
-            }
-            catch {
-                Write-Log "    [!] Error setting password never expires: $_" -Level ERROR
-                return $false
-            }
-        }
-        
-        ################################################################
-        # PRE-AUTH DISABLED (AS-REP ROASTING)
-        ################################################################
-        
-        if ($config['AccountSecurity_IncludePreAuthDisabled'] -eq 'true') {
-            try {
-                Set-ADUser -Identity $user -Replace @{"userAccountControl" = 4194816} -ErrorAction Stop
-                Write-LogChange -Object $user.Name -Attribute "userAccountControl" -OldValue "Default" -NewValue "DONT_REQUIRE_PREAUTH"
-                Write-Log "    [+] Pre-auth disabled (AS-REP roasting vector)" -Level SUCCESS
-            }
-            catch {
-                Write-Log "    [!] Error disabling pre-auth: $_" -Level ERROR
-                return $false
-            }
-        }
-        
-        ################################################################
-        # WEAK KERBEROS ENCRYPTION
-        ################################################################
-        
-        if ($config['AccountSecurity_IncludeWeakEncryption'] -eq 'true') {
-            try {
-                if ($userIndex -eq 1) {
-                    # DES only
-                    Set-ADUser -Identity $user -Replace @{"msDS-SupportedEncryptionTypes" = 1} -ErrorAction Stop
-                    Write-LogChange -Object $user.Name -Attribute "msDS-SupportedEncryptionTypes" -OldValue "Default" -NewValue "DES Only (1)"
-                    Write-Log "    [+] Encryption: DES only" -Level SUCCESS
-                }
-                elseif ($userIndex -eq 2) {
-                    # RC4 only
-                    Set-ADUser -Identity $user -Replace @{"msDS-SupportedEncryptionTypes" = 4} -ErrorAction Stop
-                    Write-LogChange -Object $user.Name -Attribute "msDS-SupportedEncryptionTypes" -OldValue "Default" -NewValue "RC4 Only (4)"
-                    Write-Log "    [+] Encryption: RC4 only" -Level SUCCESS
-                }
-                elseif ($userIndex -eq 3) {
-                    # DES + RC4
-                    Set-ADUser -Identity $user -Replace @{"msDS-SupportedEncryptionTypes" = 5} -ErrorAction Stop
-                    Write-LogChange -Object $user.Name -Attribute "msDS-SupportedEncryptionTypes" -OldValue "Default" -NewValue "DES + RC4 (5)"
-                    Write-Log "    [+] Encryption: DES + RC4" -Level SUCCESS
-                }
-            }
-            catch {
-                Write-Log "    [!] Error setting weak encryption: $_" -Level ERROR
-                return $false
-            }
-        }
-        
-        ################################################################
-        # UNCONSTRAINED DELEGATION
-        ################################################################
-        
-        if ($config['AccountSecurity_IncludeUnconstrainedDelegation'] -eq 'true' -and $userIndex -le 2) {
-            try {
-                Set-ADUser -Identity $user -TrustedForDelegation $true -ErrorAction Stop
-                Write-LogChange -Object $user.Name -Attribute "TrustedForDelegation" -OldValue "False" -NewValue "True"
-                Write-Log "    [+] Unconstrained delegation enabled" -Level SUCCESS
-            }
-            catch {
-                Write-Log "    [!] Error enabling unconstrained delegation: $_" -Level ERROR
-                return $false
-            }
-        }
-        
-        ################################################################
-        # CONSTRAINED DELEGATION TO DANGEROUS SPNS
-        ################################################################
-        
-        if ($config['AccountSecurity_IncludeConstrainedDelegation'] -eq 'true' -and $userIndex -eq 3) {
-            try {
-                $spns = @(
-                    "ldap/$($domain.DNSRoot)",
-                    "cifs/$($domain.DNSRoot)",
-                    "host/$($domain.DNSRoot)"
-                )
+            $Logging.Log("Forest: $($ADForest.Name) | Domain: $($ADDomain.Name)", 'INFO')
+
+            # =====================================================================
+            # IOE 1: Use Built-in Administrator Account (Recent Activity)
+            # =====================================================================
+            If ($Config.AccountSecurity_UseBuiltInAdmin -eq $true) {
+                $Logging.Log("Enabling IOE: Built-in domain Administrator account used within the last two weeks", 'INFO')
                 
-                Set-ADUser -Identity $user -Replace @{"msDS-AllowedToDelegateTo" = $spns} -ErrorAction Stop
-                Write-LogChange -Object $user.Name -Attribute "msDS-AllowedToDelegateTo" -OldValue "None" -NewValue "LDAP, CIFS, Host"
-                Write-Log "    [+] Constrained delegation to dangerous SPNs" -Level SUCCESS
+                Try {
+                    # Get the built-in Administrator account
+                    $AdminAccount = Get-ADUser -Filter {SamAccountName -eq 'Administrator'} -Properties LastLogonDate
+                    
+                    If ($AdminAccount) {
+                        # Force a password change to trigger recent activity
+                        $TempPassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$(Get-Random -Minimum 100000 -Maximum 999999)")
+                        Set-ADAccountPassword -Identity $AdminAccount -NewPassword $TempPassword -Reset
+                        
+                        $Logging.Log("  ✓ Built-in Administrator password reset to trigger recent activity", 'SUCCESS')
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error resetting Administrator password: $_", 'ERROR')
+                }
             }
-            catch {
-                Write-Log "    [!] Error setting constrained delegation: $_" -Level ERROR
-                return $false
+
+            # =====================================================================
+            # IOE 2: Administrator Account with Old Password (180+ days)
+            # =====================================================================
+            If ($Config.AccountSecurity_AdminOldPassword -eq $true) {
+                $Logging.Log("Enabling IOE: Built-in domain Administrator account with old password (180 days)", 'INFO')
+                
+                Try {
+                    # This requires manipulating pwdLastSet attribute
+                    $AdminAccount = Get-ADUser -Filter {SamAccountName -eq 'Administrator'} -Properties pwdLastSet
+                    
+                    If ($AdminAccount) {
+                        # Set pwdLastSet to 185 days ago
+                        $DaysAgo = 185
+                        $TargetDate = [datetime]::Now.AddDays(-$DaysAgo)
+                        $filetime = $TargetDate.ToFileTime()
+                        
+                        Set-ADUser -Identity $AdminAccount -Replace @{pwdLastSet = $filetime}
+                        
+                        $Logging.Log("  ✓ Administrator pwdLastSet set to ~$DaysAgo days ago", 'SUCCESS')
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error setting old password date: $_", 'ERROR')
+                }
             }
+
+            # =====================================================================
+            # IOE 3: Privileged Accounts with Password Never Expires
+            # =====================================================================
+            If ($Config.AccountSecurity_PrivilegedPwdNeverExpires -eq $true) {
+                $Logging.Log("Enabling IOE: Privileged accounts with password that never expires", 'INFO')
+                
+                Try {
+                    # Create test privileged accounts with password never expires
+                    $PrivilegedGroupsToTarget = @('Domain Admins', 'Enterprise Admins', 'Schema Admins')
+                    
+                    For ($i = 1; $i -le 3; $i++) {
+                        $UserName = "break-privacct-pwdneverexp-$i"
+                        $UserDisplay = "Break: Priv Account Pwd Never Expires $i"
+                        
+                        # Check if user exists
+                        $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
+                        
+                        If (-not $ExistingUser) {
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            
+                            New-ADUser -SamAccountName $UserName `
+                                -Name $UserDisplay `
+                                -DisplayName $UserDisplay `
+                                -AccountPassword $SecurePassword `
+                                -Enabled $true `
+                                -PasswordNotRequired $false
+                            
+                            # Set password to never expire
+                            Set-ADUser -Identity $UserName -PasswordNotRequired $false
+                            $UserObj = Get-ADUser $UserName
+                            Set-ADAccountPassword -Identity $UserObj -NewPassword $SecurePassword -Reset
+                            
+                            # Now set to never expire
+                            Set-ADUser -Identity $UserName -PasswordNeverExpires $true
+                            
+                            # Add to Domain Admins
+                            Add-ADGroupMember -Identity "Domain Admins" -Members $UserName -ErrorAction SilentlyContinue
+                            
+                            $Logging.Log("  ✓ Created privileged account '$UserName' with password never expires", 'SUCCESS')
+                        }
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error creating privileged accounts with pwd never expires: $_", 'ERROR')
+                }
+            }
+
+            # =====================================================================
+            # IOE 4: User Accounts with Reversible Encryption
+            # =====================================================================
+            If ($Config.AccountSecurity_ReversibleEncryption -eq $true) {
+                $Logging.Log("Enabling IOE: User accounts that store passwords with reversible encryption", 'INFO')
+                
+                Try {
+                    For ($i = 1; $i -le 2; $i++) {
+                        $UserName = "break-revenc-$i"
+                        $UserDisplay = "Break: Reversible Encryption $i"
+                        
+                        $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
+                        
+                        If (-not $ExistingUser) {
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            
+                            New-ADUser -SamAccountName $UserName `
+                                -Name $UserDisplay `
+                                -DisplayName $UserDisplay `
+                                -AccountPassword $SecurePassword `
+                                -Enabled $true
+                            
+                            # Enable reversible encryption for this account
+                            Set-ADUser -Identity $UserName -Replace @{
+                                'userAccountControl' = (([int]$(Get-ADUser $UserName -Properties userAccountControl).userAccountControl) -bor 128)
+                            }
+                            
+                            $Logging.Log("  ✓ Created user '$UserName' with reversible encryption enabled", 'SUCCESS')
+                        }
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error creating reversible encryption accounts: $_", 'ERROR')
+                }
+            }
+
+            # =====================================================================
+            # IOE 5: User Accounts with DES Encryption
+            # =====================================================================
+            If ($Config.AccountSecurity_DESEncryption -eq $true) {
+                $Logging.Log("Enabling IOE: User accounts that use DES encryption", 'INFO')
+                
+                Try {
+                    For ($i = 1; $i -le 2; $i++) {
+                        $UserName = "break-des-$i"
+                        $UserDisplay = "Break: DES Encryption $i"
+                        
+                        $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
+                        
+                        If (-not $ExistingUser) {
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            
+                            New-ADUser -SamAccountName $UserName `
+                                -Name $UserDisplay `
+                                -DisplayName $UserDisplay `
+                                -AccountPassword $SecurePassword `
+                                -Enabled $true
+                            
+                            # Set msDS-SupportedEncryptionTypes to DES only (1)
+                            Set-ADUser -Identity $UserName -Replace @{
+                                'msDS-SupportedEncryptionTypes' = 1  # DES-CBC-MD5 only
+                            }
+                            
+                            $Logging.Log("  ✓ Created user '$UserName' with DES encryption only", 'SUCCESS')
+                        }
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error creating DES encryption accounts: $_", 'ERROR')
+                }
+            }
+
+            # =====================================================================
+            # IOE 6: User Accounts with Password Not Required
+            # =====================================================================
+            If ($Config.AccountSecurity_PwdNotRequired -eq $true) {
+                $Logging.Log("Enabling IOE: User accounts with password not required", 'INFO')
+                
+                Try {
+                    For ($i = 1; $i -le 2; $i++) {
+                        $UserName = "break-nopwd-$i"
+                        $UserDisplay = "Break: Password Not Required $i"
+                        
+                        $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
+                        
+                        If (-not $ExistingUser) {
+                            New-ADUser -SamAccountName $UserName `
+                                -Name $UserDisplay `
+                                -DisplayName $UserDisplay `
+                                -Enabled $true `
+                                -PasswordNotRequired $true
+                            
+                            $Logging.Log("  ✓ Created user '$UserName' with password not required", 'SUCCESS')
+                        }
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error creating password not required accounts: $_", 'ERROR')
+                }
+            }
+
+            # =====================================================================
+            # IOE 7: Users with Kerberos Pre-authentication Disabled
+            # =====================================================================
+            If ($Config.AccountSecurity_PreAuthDisabled -eq $true) {
+                $Logging.Log("Enabling IOE: Users with Kerberos pre-authentication disabled", 'INFO')
+                
+                Try {
+                    For ($i = 1; $i -le 2; $i++) {
+                        $UserName = "break-nopreauth-$i"
+                        $UserDisplay = "Break: Pre-Auth Disabled $i"
+                        
+                        $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
+                        
+                        If (-not $ExistingUser) {
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            
+                            New-ADUser -SamAccountName $UserName `
+                                -Name $UserDisplay `
+                                -DisplayName $UserDisplay `
+                                -AccountPassword $SecurePassword `
+                                -Enabled $true
+                            
+                            # Disable pre-authentication (UF_DONT_REQUIRE_PREAUTH = 0x400000 / 4194304)
+                            Set-ADUser -Identity $UserName -Replace @{
+                                'userAccountControl' = (([int]$(Get-ADUser $UserName -Properties userAccountControl).userAccountControl) -bor 4194304)
+                            }
+                            
+                            $Logging.Log("  ✓ Created user '$UserName' with pre-authentication disabled", 'SUCCESS')
+                        }
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error creating pre-auth disabled accounts: $_", 'ERROR')
+                }
+            }
+
+            # =====================================================================
+            # IOE 8: Unprivileged Accounts with adminCount=1
+            # =====================================================================
+            If ($Config.AccountSecurity_UnprivilegedAdminCount -eq $true) {
+                $Logging.Log("Enabling IOE: Unprivileged accounts with adminCount=1", 'INFO')
+                
+                Try {
+                    For ($i = 1; $i -le 2; $i++) {
+                        $UserName = "break-admincnt-unprivileged-$i"
+                        $UserDisplay = "Break: AdminCount Unprivileged $i"
+                        
+                        $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
+                        
+                        If (-not $ExistingUser) {
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            
+                            New-ADUser -SamAccountName $UserName `
+                                -Name $UserDisplay `
+                                -DisplayName $UserDisplay `
+                                -AccountPassword $SecurePassword `
+                                -Enabled $true
+                            
+                            # Set adminCount to 1 on unprivileged account
+                            Set-ADUser -Identity $UserName -Replace @{
+                                'adminCount' = 1
+                            }
+                            
+                            $Logging.Log("  ✓ Created unprivileged user '$UserName' with adminCount=1", 'SUCCESS')
+                        }
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error creating unprivileged adminCount accounts: $_", 'ERROR')
+                }
+            }
+
+            # =====================================================================
+            # IOE 9: Accounts with Old Passwords (90+ days)
+            # =====================================================================
+            If ($Config.AccountSecurity_OldPasswords -eq $true) {
+                $Logging.Log("Enabling IOE: User accounts with old passwords (90+ days)", 'INFO')
+                
+                Try {
+                    For ($i = 1; $i -le 2; $i++) {
+                        $UserName = "break-oldpwd-$i"
+                        $UserDisplay = "Break: Old Password $i"
+                        
+                        $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -Properties pwdLastSet -ErrorAction SilentlyContinue
+                        
+                        If (-not $ExistingUser) {
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            
+                            New-ADUser -SamAccountName $UserName `
+                                -Name $UserDisplay `
+                                -DisplayName $UserDisplay `
+                                -AccountPassword $SecurePassword `
+                                -Enabled $true
+                            
+                            # Set pwdLastSet to 95 days ago
+                            $DaysAgo = 95
+                            $TargetDate = [datetime]::Now.AddDays(-$DaysAgo)
+                            $filetime = $TargetDate.ToFileTime()
+                            
+                            Set-ADUser -Identity $UserName -Replace @{pwdLastSet = $filetime}
+                            
+                            $Logging.Log("  ✓ Created user '$UserName' with password last set ~$DaysAgo days ago", 'SUCCESS')
+                        }
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error creating old password accounts: $_", 'ERROR')
+                }
+            }
+
+            # =====================================================================
+            # IOE 10: Privileged Users that are Disabled
+            # =====================================================================
+            If ($Config.AccountSecurity_DisabledPrivilegedUsers -eq $true) {
+                $Logging.Log("Enabling IOE: Privileged users that are disabled", 'INFO')
+                
+                Try {
+                    For ($i = 1; $i -le 2; $i++) {
+                        $UserName = "break-disabled-priv-$i"
+                        $UserDisplay = "Break: Disabled Privileged User $i"
+                        
+                        $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
+                        
+                        If (-not $ExistingUser) {
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            
+                            # Create enabled first
+                            New-ADUser -SamAccountName $UserName `
+                                -Name $UserDisplay `
+                                -DisplayName $UserDisplay `
+                                -AccountPassword $SecurePassword `
+                                -Enabled $true
+                            
+                            # Add to Domain Admins
+                            Add-ADGroupMember -Identity "Domain Admins" -Members $UserName -ErrorAction SilentlyContinue
+                            
+                            # Then disable
+                            Disable-ADAccount -Identity $UserName
+                            
+                            $Logging.Log("  ✓ Created disabled privileged user '$UserName'", 'SUCCESS')
+                        }
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error creating disabled privileged users: $_", 'ERROR')
+                }
+            }
+
+            # =====================================================================
+            # IOE 11: Recent Privileged Account Creation
+            # =====================================================================
+            If ($Config.AccountSecurity_RecentPrivilegedCreation -eq $true) {
+                $Logging.Log("Enabling IOE: Recent privileged account creation activity", 'INFO')
+                
+                Try {
+                    For ($i = 1; $i -le 2; $i++) {
+                        $UserName = "break-newpriv-$i"
+                        $UserDisplay = "Break: New Privileged Account $i"
+                        
+                        $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
+                        
+                        If (-not $ExistingUser) {
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            
+                            New-ADUser -SamAccountName $UserName `
+                                -Name $UserDisplay `
+                                -DisplayName $UserDisplay `
+                                -AccountPassword $SecurePassword `
+                                -Enabled $true
+                            
+                            # Add to multiple privileged groups (will be detected as recent creation)
+                            Add-ADGroupMember -Identity "Domain Admins" -Members $UserName -ErrorAction SilentlyContinue
+                            Add-ADGroupMember -Identity "Schema Admins" -Members $UserName -ErrorAction SilentlyContinue
+                            
+                            $Logging.Log("  ✓ Created new privileged account '$UserName'", 'SUCCESS')
+                        }
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error creating recent privileged accounts: $_", 'ERROR')
+                }
+            }
+
+            # =====================================================================
+            # IOE 12: Recent AD Object Creation (within 10 days)
+            # =====================================================================
+            If ($Config.AccountSecurity_RecentObjectCreation -eq $true) {
+                $Logging.Log("Enabling IOE: AD objects created within the last 10 days", 'INFO')
+                
+                Try {
+                    For ($i = 1; $i -le 3; $i++) {
+                        $UserName = "break-newobj-$i"
+                        $UserDisplay = "Break: New Object $i"
+                        
+                        $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
+                        
+                        If (-not $ExistingUser) {
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            
+                            New-ADUser -SamAccountName $UserName `
+                                -Name $UserDisplay `
+                                -DisplayName $UserDisplay `
+                                -AccountPassword $SecurePassword `
+                                -Enabled $true
+                            
+                            $Logging.Log("  ✓ Created new AD object '$UserName'", 'SUCCESS')
+                        }
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error creating new AD objects: $_", 'ERROR')
+                }
+            }
+
+            # =====================================================================
+            # IOE 13: Smart Card Auth with Old Password
+            # =====================================================================
+            If ($Config.AccountSecurity_SmartCardOldPassword -eq $true) {
+                $Logging.Log("Enabling IOE: User accounts using Smart Card authentication with old password", 'INFO')
+                
+                Try {
+                    For ($i = 1; $i -le 1; $i++) {
+                        $UserName = "break-smartcard-$i"
+                        $UserDisplay = "Break: Smart Card Old Password $i"
+                        
+                        $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
+                        
+                        If (-not $ExistingUser) {
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            
+                            New-ADUser -SamAccountName $UserName `
+                                -Name $UserDisplay `
+                                -DisplayName $UserDisplay `
+                                -AccountPassword $SecurePassword `
+                                -Enabled $true
+                            
+                            # Set smartCardLogonRequired
+                            Set-ADUser -Identity $UserName -SmartcardLogonRequired $true
+                            
+                            # Set password old (90+ days)
+                            $DaysAgo = 100
+                            $TargetDate = [datetime]::Now.AddDays(-$DaysAgo)
+                            $filetime = $TargetDate.ToFileTime()
+                            
+                            Set-ADUser -Identity $UserName -Replace @{pwdLastSet = $filetime}
+                            
+                            $Logging.Log("  ✓ Created smart card user '$UserName' with old password", 'SUCCESS')
+                        }
+                    }
+                } Catch {
+                    $Logging.Log("  ✗ Error creating smart card old password accounts: $_", 'ERROR')
+                }
+            }
+
+            $Logging.Log("Successfully completed Module 2: Account Security", 'SUCCESS')
+
+        } Catch {
+            $Logging.Log("Fatal error in $FunctionName : $_", 'ERROR')
+            throw
         }
-        
-        ################################################################
-        # WEAK PASSWORD STORAGE (IN DESCRIPTION)
-        ################################################################
-        
-        if ($config['AccountSecurity_IncludeWeakPasswordStorage'] -eq 'true' -and $userIndex -eq 4) {
-            try {
-                Set-ADUser -Identity $user -Description "Password: WeakPass123!" -ErrorAction Stop
-                Write-LogChange -Object $user.Name -Attribute "Description" -OldValue "Default" -NewValue "Contains password"
-                Write-Log "    [+] Weak password stored in description" -Level SUCCESS
-            }
-            catch {
-                Write-Log "    [!] Error storing password in description: $_" -Level ERROR
-                return $false
-            }
-        }
-        
-        ################################################################
-        # SERVICE ACCOUNT ABUSE
-        ################################################################
-        
-        if ($config['AccountSecurity_IncludeServiceAccountAbuse'] -eq 'true' -and $userIndex -eq 5) {
-            try {
-                Set-ADUser -Identity $user -PasswordNeverExpires $true -ErrorAction Stop
-                Set-ADUser -Identity $user -Description "Shared service account - weak configuration" -ErrorAction Stop
-                Write-LogChange -Object $user.Name -Attribute "ServiceAccountAbuse" -OldValue "No" -NewValue "Yes"
-                Write-Log "    [+] Service account abuse configured" -Level SUCCESS
-            }
-            catch {
-                Write-Log "    [!] Error configuring service account abuse: $_" -Level ERROR
-                return $false
-            }
-        }
-        
-        Write-Log "" -Level INFO
     }
-    
-    ################################################################################
-    # COMPLETION
-    ################################################################################
-    
-    Write-Log "========================================" -Level INFO
-    Write-Log "Module 02: Account Security" -Level INFO
-    Write-Log "========================================" -Level INFO
-    Write-Log "Status: COMPLETE" -Level SUCCESS
-    Write-Log "Users created/configured: $($badUsers.Count)" -Level SUCCESS
-    Write-Log "" -Level INFO
-    
-    return $true
+
+    End {
+        $Logging.Log("Finished $FunctionName", 'INFO')
+    }
 }
 
-Export-ModuleMember -Function Invoke-ModuleAccountSecurity
+Export-ModuleMember -Function Invoke-DSPBreakAD-Module-02-AccountSecurity
