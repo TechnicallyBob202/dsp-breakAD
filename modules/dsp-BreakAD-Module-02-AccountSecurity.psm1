@@ -15,7 +15,7 @@
 ## - Service account abuse scenarios
 ##
 ## Author: Bob Lyons (bob@semperis.com)
-## Version: 1.0.0 - Clean rebuild from scratch
+## Version: 1.0.0 - Clean rebuild matching Module 1 pattern
 ##
 ################################################################################
 
@@ -43,7 +43,7 @@ function Invoke-ModuleAccountSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 0: GET OU PATHS (from Module 1 config)
+    # PHASE 0: GET OU PATHS
     ################################################################################
     
     Write-Log "PHASE 0: Get Organizational Unit Paths" -Level INFO
@@ -83,10 +83,10 @@ function Invoke-ModuleAccountSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 2: CREATE BAD USERS WITH WEAK PROPERTIES
+    # PHASE 2: CREATE BAD USERS
     ################################################################################
     
-    Write-Log "PHASE 2: Create Bad Users with Weak Properties" -Level INFO
+    Write-Log "PHASE 2: Create Bad Users" -Level INFO
     
     $badUsers = @()
     
@@ -139,7 +139,7 @@ function Invoke-ModuleAccountSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 3: APPLY WEAK PROPERTIES TO USERS
+    # PHASE 3: APPLY WEAK PROPERTIES
     ################################################################################
     
     Write-Log "PHASE 3: Apply Weak Properties to Users" -Level INFO
