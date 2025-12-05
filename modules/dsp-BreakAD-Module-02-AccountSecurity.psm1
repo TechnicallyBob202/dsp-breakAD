@@ -5,7 +5,6 @@
 # Targets: Account Security IOE category in DSP
 #
 # Author: Bob Lyons (bob@semperis.com)
-# Modified: DSP Scoring Optimization
 ################################################################################
 
 function Invoke-ModuleAccountSecurity {
@@ -26,7 +25,6 @@ function Invoke-ModuleAccountSecurity {
             # Get AD Forest and Domain Info
             $ADForest = Get-ADForest
             $ADDomain = Get-ADDomain
-            $ADRootDomain = Get-ADForest | Select-Object -ExpandProperty RootDomain
             
             Write-Log "Forest: $($ADForest.Name) | Domain: $($ADDomain.Name)" -Level INFO
 
@@ -38,7 +36,7 @@ function Invoke-ModuleAccountSecurity {
                     $AdminAccount = Get-ADUser -Filter {SamAccountName -eq 'Administrator'} -Properties LastLogonDate
                     
                     If ($AdminAccount) {
-                        $TempPassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$(Get-Random -Minimum 100000 -Maximum 999999)")
+                        $TempPassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rdAdm1n123456"
                         Set-ADAccountPassword -Identity $AdminAccount -NewPassword $TempPassword -Reset
                         
                         Write-Log "PASS: Built-in Administrator password reset to trigger recent activity" -Level SUCCESS
@@ -60,7 +58,10 @@ function Invoke-ModuleAccountSecurity {
                         $TargetDate = [datetime]::Now.AddDays(-$DaysAgo)
                         $filetime = $TargetDate.ToFileTime()
                         
-                        Set-ADUser -Identity $AdminAccount -Replace @{pwdLastSet = $filetime}
+                        $ldapPath = "LDAP://$($AdminAccount.DistinguishedName)"
+                        $adsiUser = [ADSI]$ldapPath
+                        $adsiUser.Put("pwdLastSet", $filetime)
+                        $adsiUser.SetInfo()
                         
                         Write-Log "PASS: Administrator pwdLastSet set to $DaysAgo days ago" -Level SUCCESS
                     }
@@ -75,13 +76,13 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 3; $i++) {
-                        $UserName = "break-privacct-pwdneverexp-$i"
+                        $UserName = "brkprivpwdexp$i"
                         $UserDisplay = "Break: Priv Account Pwd Never Expires $i"
                         
                         $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
                         
                         If (-not $ExistingUser) {
-                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rd1PrivAcct$i"
                             
                             New-ADUser -SamAccountName $UserName `
                                 -Name $UserDisplay `
@@ -108,13 +109,13 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $UserName = "break-revenc-$i"
+                        $UserName = "brkrevenc$i"
                         $UserDisplay = "Break: Reversible Encryption $i"
                         
                         $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
                         
                         If (-not $ExistingUser) {
-                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rd1RevEnc$i"
                             
                             New-ADUser -SamAccountName $UserName `
                                 -Name $UserDisplay `
@@ -140,13 +141,13 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $UserName = "break-des-$i"
+                        $UserName = "brkdes$i"
                         $UserDisplay = "Break: DES Encryption $i"
                         
                         $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
                         
                         If (-not $ExistingUser) {
-                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rd1Des$i"
                             
                             New-ADUser -SamAccountName $UserName `
                                 -Name $UserDisplay `
@@ -172,7 +173,7 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $UserName = "break-nopwd-$i"
+                        $UserName = "brknopwd$i"
                         $UserDisplay = "Break: Password Not Required $i"
                         
                         $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
@@ -198,13 +199,13 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $UserName = "break-nopreauth-$i"
+                        $UserName = "brknopreauth$i"
                         $UserDisplay = "Break: Pre-Auth Disabled $i"
                         
                         $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
                         
                         If (-not $ExistingUser) {
-                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rd1PreAuth$i"
                             
                             New-ADUser -SamAccountName $UserName `
                                 -Name $UserDisplay `
@@ -230,13 +231,13 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $UserName = "break-admincnt-unprivileged-$i"
+                        $UserName = "brkadmincnt$i"
                         $UserDisplay = "Break: AdminCount Unprivileged $i"
                         
                         $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
                         
                         If (-not $ExistingUser) {
-                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rd1AdminCnt$i"
                             
                             New-ADUser -SamAccountName $UserName `
                                 -Name $UserDisplay `
@@ -262,25 +263,28 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $UserName = "break-oldpwd-$i"
+                        $UserName = "brkoldpwd$i"
                         $UserDisplay = "Break: Old Password $i"
                         
                         $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -Properties pwdLastSet -ErrorAction SilentlyContinue
                         
                         If (-not $ExistingUser) {
-                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rd1OldPwd$i"
                             
-                            New-ADUser -SamAccountName $UserName `
+                            $userObj = New-ADUser -SamAccountName $UserName `
                                 -Name $UserDisplay `
                                 -DisplayName $UserDisplay `
                                 -AccountPassword $SecurePassword `
-                                -Enabled $true
+                                -Enabled $true -PassThru
                             
                             $DaysAgo = 95
                             $TargetDate = [datetime]::Now.AddDays(-$DaysAgo)
                             $filetime = $TargetDate.ToFileTime()
                             
-                            Set-ADUser -Identity $UserName -Replace @{pwdLastSet = $filetime}
+                            $ldapPath = "LDAP://$($userObj.DistinguishedName)"
+                            $adsiUser = [ADSI]$ldapPath
+                            $adsiUser.Put("pwdLastSet", $filetime)
+                            $adsiUser.SetInfo()
                             
                             Write-Log "PASS: Created user $UserName with password last set $DaysAgo days ago" -Level SUCCESS
                         }
@@ -296,13 +300,13 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $UserName = "break-disabled-priv-$i"
+                        $UserName = "brkdisabledpriv$i"
                         $UserDisplay = "Break: Disabled Privileged User $i"
                         
                         $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
                         
                         If (-not $ExistingUser) {
-                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rd1DisPriv$i"
                             
                             New-ADUser -SamAccountName $UserName `
                                 -Name $UserDisplay `
@@ -328,13 +332,13 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $UserName = "break-newpriv-$i"
+                        $UserName = "brknewpriv$i"
                         $UserDisplay = "Break: New Privileged Account $i"
                         
                         $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
                         
                         If (-not $ExistingUser) {
-                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rd1NewPriv$i"
                             
                             New-ADUser -SamAccountName $UserName `
                                 -Name $UserDisplay `
@@ -359,13 +363,13 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 3; $i++) {
-                        $UserName = "break-newobj-$i"
+                        $UserName = "brknewobj$i"
                         $UserDisplay = "Break: New Object $i"
                         
                         $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
                         
                         If (-not $ExistingUser) {
-                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rd1NewObj$i"
                             
                             New-ADUser -SamAccountName $UserName `
                                 -Name $UserDisplay `
@@ -387,19 +391,19 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 1; $i++) {
-                        $UserName = "break-smartcard-$i"
+                        $UserName = "brksmartcard$i"
                         $UserDisplay = "Break: Smart Card Old Password $i"
                         
                         $ExistingUser = Get-ADUser -Filter {SamAccountName -eq $UserName} -ErrorAction SilentlyContinue
                         
                         If (-not $ExistingUser) {
-                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String ("P@ssw0rd_$($UserName)_$(Get-Random)")
+                            $SecurePassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rd1SmartCard$i"
                             
-                            New-ADUser -SamAccountName $UserName `
+                            $userObj = New-ADUser -SamAccountName $UserName `
                                 -Name $UserDisplay `
                                 -DisplayName $UserDisplay `
                                 -AccountPassword $SecurePassword `
-                                -Enabled $true
+                                -Enabled $true -PassThru
                             
                             Set-ADUser -Identity $UserName -SmartcardLogonRequired $true
                             
@@ -407,7 +411,10 @@ function Invoke-ModuleAccountSecurity {
                             $TargetDate = [datetime]::Now.AddDays(-$DaysAgo)
                             $filetime = $TargetDate.ToFileTime()
                             
-                            Set-ADUser -Identity $UserName -Replace @{pwdLastSet = $filetime}
+                            $ldapPath = "LDAP://$($userObj.DistinguishedName)"
+                            $adsiUser = [ADSI]$ldapPath
+                            $adsiUser.Put("pwdLastSet", $filetime)
+                            $adsiUser.SetInfo()
                             
                             Write-Log "PASS: Created smart card user $UserName with old password" -Level SUCCESS
                         }
