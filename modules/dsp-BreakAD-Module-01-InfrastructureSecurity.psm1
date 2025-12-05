@@ -148,7 +148,7 @@ function Invoke-ModuleInfrastructureSecurity {
         Write-Log "  Creating $schemaAdminCount Schema Admin user(s)..." -Level INFO
         
         for ($i = 1; $i -le $schemaAdminCount; $i++) {
-            $userName = "break-SchemaAdmin-" + "{0:D2}" -f $i
+            $userName = "break-schema-adm-" + "{0:D2}" -f $i
             
             Write-Log "    Processing: $userName" -Level INFO
             
@@ -198,7 +198,7 @@ function Invoke-ModuleInfrastructureSecurity {
         Write-Log "  Creating $enterpriseAdminCount Enterprise Admin user(s)..." -Level INFO
         
         for ($i = 1; $i -le $enterpriseAdminCount; $i++) {
-            $userName = "break-EnterpriseAdmin-" + "{0:D2}" -f $i
+            $userName = "break-ent-adm-" + "{0:D2}" -f $i
             
             Write-Log "    Processing: $userName" -Level INFO
             
@@ -451,7 +451,7 @@ function Invoke-ModuleInfrastructureSecurity {
     
     Write-Log "PHASE 9: Create Disabled Privileged Account" -Level INFO
     
-    $disabledAdminName = "break-DisabledAdmin-01"
+    $disabledAdminName = "break-disabled-adm"
     
     # Check if already exists
     $existingDisabledAdmin = Get-ADUser -Filter "SamAccountName -eq '$disabledAdminName'" -SearchBase $usersOUPath -ErrorAction SilentlyContinue
@@ -501,7 +501,7 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "PHASE 10: Add Computer Accounts to Privileged Groups" -Level INFO
     
     # Create a test computer account
-    $computerName = "break-Computer-01"
+    $computerName = "break-computer"
     
     $existingComputer = Get-ADComputer -Filter "Name -eq '$computerName'" -SearchBase $computersOUPath -ErrorAction SilentlyContinue
     
