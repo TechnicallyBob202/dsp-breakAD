@@ -2,272 +2,293 @@
 
 A PowerShell-based utility to deliberately introduce realistic security misconfigurations into a lab Active Directory environment for DSP (Directory Services Protector) demonstration and testing.
 
-**Author:** Bob Lyons (bob@semperis.com)
+**Author:** Bob Lyons (bob@semperis.com)  
+**Status:** Infrastructure Security Module (01) - Production Ready
 
 ## Overview
 
-dsp-breakAD allows you to systematically introduce AD security misconfigurations that mirror real-world poorly-configured environments. Each module targets a specific DSP category and can be run independently or in sequence.
+dsp-breakAD allows you to systematically introduce AD security misconfigurations that mirror real-world poorly-configured environments. Each module targets a specific DSP Infrastructure Security IOE and can be run independently or in sequence.
+
+The tool is designed to weaken AD security realistically without breaking it - all changes are intentional, logged, and documented for reversal.
 
 ## Prerequisites
 
 - PowerShell 5.1 or higher
 - Administrator rights on domain-joined machine
 - Active Directory PowerShell module
+- Group Policy Management module (for GPO-based changes)
 - Connection to at least one Domain Controller
-- Lab/test AD forest (NOT production)
-
-## Structure
-
-```
-dsp-breakAD/
-├── dsp-breakAD.ps1                    # Main orchestration script
-├── dsp-breakAD.config                 # Configuration file
-├── dsp-BreakAD-Logging.psm1           # Logging module
-├── modules/
-│   ├── dsp-BreakAD-Module-01-InfrastructureSecurity.psm1
-│   ├── dsp-BreakAD-Module-02-AccountSecurity.psm1
-│   ├── dsp-BreakAD-Module-03-ADDelegation.psm1
-│   ├── dsp-BreakAD-Module-04-KerberosSecurity.psm1
-│   └── dsp-BreakAD-Module-05-GroupPolicySecurity.psm1
-└── logs/                              # Auto-created, contains execution logs
-```
+- **Lab/test AD forest (NOT production)**
 
 ## Quick Start
 
-### Run All Modules
+### Run with Default Settings (Preflight + Module 01)
 ```powershell
 .\dsp-breakAD.ps1 -All
 ```
 
-### Run Specific Module(s)
+### Run Specific Module
 ```powershell
-.\dsp-breakAD.ps1 -ModuleNames "InfrastructureSecurity","AccountSecurity"
+.\dsp-breakAD.ps1 -ModuleNames "InfrastructureSecurity"
 ```
 
 ### Interactive Selection
 ```powershell
 .\dsp-breakAD.ps1
 ```
-You'll be prompted to select which modules to run:
-- 1) InfrastructureSecurity
-- 2) AccountSecurity
-- 3) ADDelegation
-- 4) KerberosSecurity
-- 5) GroupPolicySecurity
-- 6) All
 
-## Modules
+### Skip Preflight Validation
+```powershell
+.\dsp-breakAD.ps1 -All -SkipPreflight
+```
 
-### Module 1: Infrastructure Security
-Targets: AD Infrastructure Security (DSP category)
+## Structure
 
-**Actions:**
-- Enables print spooler on all Domain Controllers (Critical: Execution vector)
-- Adds users to Schema Admins group (High: Privilege escalation)
-- Adds users to Enterprise Admins group (High: Forest-wide privilege)
-- Modifies dSHeuristics to enable:
-  - Anonymous LDAP access
-  - Anonymous NSPI access
-  - Weak password operations over non-secure connections
+```
+dsp-breakAD/
+├── dsp-breakAD.ps1                                  # Main orchestration script
+├── dsp-breakAD.config                               # Module configuration
+├── dsp-BreakAD-Logging.psm1                         # Logging functionality
+├── dsp-BreakAD-Module-00-Preflight.psm1             # Environment validation
+├── dsp-BreakAD-Module-01-InfrastructureSecurity-Rebuilt.psm1
+├── PROJECT_NOTES.md                                 # Detailed project notes
+├── logs/                                            # Auto-created execution logs
+└── modules/                                         # Future modules (02-05)
+```
 
-**Config Options:**
-- `InfrastructureSecurity_EnablePrintSpooler` - Enable/disable print spooler
-- `InfrastructureSecurity_AddToSchemaAdmins` - Number of users to add
-- `InfrastructureSecurity_AddToEnterpriseAdmins` - Number of users to add
-- `InfrastructureSecurity_ModifydSHeuristics` - Enable/disable dSHeuristics changes
+## Execution Flow
 
-### Module 2: Account Security
-Targets: Account Security (DSP category)
+1. **Load Configuration** - Read dsp-breakAD.config
+2. **Run Preflight** - Validate environment, create OUs, discover domain/DC
+3. **Module Selection** - User selects which modules to run
+4. **Load Modules** - Import selected PowerShell modules
+5. **Execute Modules** - Run each module with environment context
+6. **Log Results** - Write detailed logs to logs/ directory
 
-**Actions:**
-- Creates multiple "break-User-#" accounts with various weak configurations:
-  - Password never expires
-  - Pre-auth disabled (AS-REP roasting vector)
-  - Weak Kerberos encryption (DES, RC4)
-  - Unconstrained delegation enabled
-  - Constrained delegation to dangerous SPNs
-  - Passwords stored in description fields
-  - Shared service account scenarios
+## Module: Infrastructure Security (Module 01)
 
-**Config Options:**
-- `AccountSecurity_BadUsersToCreate` - Number of bad users to create
-- `AccountSecurity_IncludeNeverExpiringPasswords` - Enable/disable
-- `AccountSecurity_IncludePreAuthDisabled` - Enable/disable
-- `AccountSecurity_IncludeWeakEncryption` - Enable/disable
-- `AccountSecurity_IncludeUnconstrainedDelegation` - Enable/disable
-- `AccountSecurity_IncludeConstrainedDelegation` - Enable/disable
-- `AccountSecurity_IncludeWeakPasswordStorage` - Enable/disable
-- `AccountSecurity_IncludeServiceAccountAbuse` - Enable/disable
+**Target Category:** AD Infrastructure Security IOEs  
+**Phases:** 9  
+**Config File:** dsp-breakAD.config
 
-### Module 3: AD Delegation
-Targets: AD Delegation (DSP category)
+**Skipped IOEs:**
+- "Well-known privileged SIDs in sIDHistory" - Requires migration privileges not available in standard lab
+- "SMBv1 is enabled on Domain Controllers" - Requires Windows Feature installation with DC restart
 
-**Actions:**
-- Grants dangerous permissions to non-admin users
-- Creates computers with unconstrained delegation
-- Modifies ACLs on sensitive AD objects
-- Grants reset password rights to weak users
-- Delegation permission abuse scenarios
+### Phase 1: Enable dSHeuristics (Anonymous NSPI Access)
+- **IOE:** "Anonymous NSPI access to AD enabled"
+- **Method:** Modifies `CN=Directory Service` LDAP object
+- **Value:** `00000001` (enables anonymous NSPI)
+- **Config:** `InfrastructureSecurity_EnabledSHeuristics=true`
+- **Effect:** Immediate (no restart required)
 
-**Config Options:**
-- `ADDelegation_GrantDangerousPermissions` - Enable/disable
-- `ADDelegation_IncludeComputerDelegation` - Enable/disable
-- `ADDelegation_ModifySensitiveACLs` - Enable/disable
-- `ADDelegation_GrantResetPasswordRights` - Enable/disable
+### Phase 2: Enable Print Spooler on Domain Controllers
+- **IOE:** "Print spooler service is enabled on a DC"
+- **Method:** Sets service startup type to Automatic, starts service
+- **Config:** `InfrastructureSecurity_EnablePrintSpooler=true`
+- **Effect:** Immediate
+- **Security Impact:** Critical - execution vector for privilege escalation
 
-### Module 4: Kerberos Security
-Targets: Kerberos Security (DSP category)
+### Phase 3: Disable LDAP Signing via GPO
+- **IOE:** "LDAP signing is not required on Domain Controllers"
+- **Method:** Creates GPO, sets registry preference, refreshes group policy
+- **Registry:** `HKLM\System\CurrentControlSet\Services\NTDS\Parameters\LDAPServerIntegrity=0`
+- **Config:** `InfrastructureSecurity_DisableLDAPSigning=true`
+- **Effect:** After gpupdate refresh (near-immediate)
 
-**Actions:**
-- Creates users/computers with DES encryption only
-- Creates users with RC4 encryption only
-- Creates users with multiple weak encryptions
-- Disables pre-auth on computer accounts
-- Creates service principals with weak settings
+### Phase 4: Disable SMB Signing via GPO
+- **IOE:** "SMB Signing is not required on Domain Controllers"
+- **Method:** Creates GPO, sets registry preference, refreshes group policy
+- **Registry:** `HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters\RequireSecuritySignature=0`
+- **Config:** `InfrastructureSecurity_DisableSMBSigning=true`
+- **Effect:** After gpupdate refresh (near-immediate)
 
-**Config Options:**
-- `KerberosSecurity_IncludeDESEncryption` - Enable/disable
-- `KerberosSecurity_IncludeRC4Encryption` - Enable/disable
-- `KerberosSecurity_IncludeMultipleWeakEncryptions` - Enable/disable
-- `KerberosSecurity_DisableComputerPreAuth` - Enable/disable
-- `KerberosSecurity_IncludeWeakSPNs` - Enable/disable
+### Phase 5: Enable SMBv1 via GPO ⚠️
+- **IOE:** "SMBv1 is enabled on Domain Controllers"
+- **Method:** Creates GPO, sets registry preference, refreshes group policy
+- **Registry:** `HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters\SMB1=1`
+- **Config:** `InfrastructureSecurity_EnableSMBv1=true`
+- **Effect:** **Requires Domain Controller restart**
+- **⚠️ IMPORTANT:** Plan for DC restart if deploying this phase
 
-### Module 5: Group Policy Security
-Targets: Group Policy Security (DSP category)
+### Phase 6: Add Anonymous to Pre-Windows 2000 Compatible Access
+- **IOE:** "Anonymous access to Active Directory enabled"
+- **Method:** Adds well-known SID `S-1-5-7` (ANONYMOUS LOGON) to group
+- **Config:** `InfrastructureSecurity_AddAnonymousPre2000=true`
+- **Effect:** Immediate
 
-**Actions:**
-- Weakens GPO link permissions at domain level
-- Weakens GPO link permissions at DC OU level
-- Grants GPO Creator rights to non-admin users
-- Attempts to weaken Default Domain Policy
-- Disables auditing on sensitive GPOs (limited automation - partial)
+### Phase 7: Disable AdminSDHolder SDProp Protection
+- **IOE:** "Operator groups no longer protected by AdminSDHolder and SDProp"
+- **Method:** Sets `adminCount=0` on Backup Operators, Account Operators, Print Operators
+- **Config:** `InfrastructureSecurity_DisableAdminSDHolder=true`
+- **Effect:** Immediate (removes SDProp reapplication)
 
-**Config Options:**
-- `GroupPolicySecurity_WeakenDomainGPOPermissions` - Enable/disable
-- `GroupPolicySecurity_WeakenDCOUGPOPermissions` - Enable/disable
-- `GroupPolicySecurity_GrantGPOCreatorRights` - Enable/disable
-- `GroupPolicySecurity_ModifyDefaultDomainPolicy` - Enable/disable
-- `GroupPolicySecurity_DisableGPOAuditing` - Enable/disable
+### Phase 8: Modify Schema Permissions
+- **IOE:** "Non-standard schema permissions"
+- **Method:** Grants Authenticated Users `GenericWrite` on schema object
+- **Config:** `InfrastructureSecurity_ModifySchemaPermissions=true`
+- **Effect:** Immediate
+
+### Phase 9: Unsecured DNS Configuration
+- **IOE:** "Unsecured DNS configuration"
+- **Method:** Sets DNS zones to allow non-secure dynamic updates (`NonsecureAndSecure`)
+- **Config:** `InfrastructureSecurity_UnsecuredDNS=true`
+- **Effect:** Immediate
 
 ## Configuration
 
-Edit `dsp-breakAD.config` to control module behavior:
+Edit `dsp-breakAD.config` to enable/disable individual phases:
 
 ```ini
-# Enable/disable specific actions
+################################################################################
+# Module 01: Infrastructure Security
+################################################################################
+
+# PHASE 1: Enable dSHeuristics (Anonymous NSPI Access)
+InfrastructureSecurity_EnabledSHeuristics=true
+InfrastructureSecurity_dSHeuristicsValue=00000001
+
+# PHASE 2: Enable Print Spooler on DCs
 InfrastructureSecurity_EnablePrintSpooler=true
-InfrastructureSecurity_AddToSchemaAdmins=2
-AccountSecurity_BadUsersToCreate=5
-AccountSecurity_IncludeNeverExpiringPasswords=true
-# ... etc
+
+# PHASE 3: Disable LDAP Signing on DCs (via GPO)
+InfrastructureSecurity_DisableLDAPSigning=true
+
+# PHASE 4: Disable SMB Signing on DCs (via GPO)
+InfrastructureSecurity_DisableSMBSigning=true
+
+# PHASE 5: Enable SMBv1 on DCs (via GPO)
+# NOTE: Requires Domain Controller restart
+InfrastructureSecurity_EnableSMBv1=true
+
+# PHASE 6: Add Anonymous to Pre-Windows 2000 Compatible Access
+InfrastructureSecurity_AddAnonymousPre2000=true
 ```
 
-**General Settings:**
-- `DryRun=false` - Log changes without applying them (future feature)
-- `TargetDSPScore=60-70` - Informational target score
+## Module 00: Preflight
+
+Automatically runs before module selection (unless `-SkipPreflight` is specified).
+
+**Functions:**
+1. Validates administrator rights
+2. Checks PowerShell version (5.1+)
+3. Validates ActiveDirectory module
+4. Verifies AD connectivity
+5. Lists Domain Controllers
+6. Checks replication health
+7. Discovers domain information
+8. Creates breakAD OUs (for future objects)
 
 ## Logging
 
-All execution is logged to `logs/dsp-breakAD-YYYYMMDD-HHMMSS.log`
+All execution logged to `logs/dsp-breakAD-YYYYMMDD-HHMMSS.log`
 
-Log levels:
-- **INFO** - Informational messages
-- **SUCCESS** - Successfully completed actions
-- **WARNING** - Non-fatal errors or skipped actions
-- **ERROR** - Fatal errors
+**Log Levels:**
+- `[INFO]` - Informational messages
+- `[SUCCESS]` - Successfully completed actions
+- `[WARNING]` - Non-fatal errors
+- `[ERROR]` - Fatal errors
 
-Each change is also logged with detailed:
-- Object affected
-- Attribute modified
-- Old value → New value
-- Timestamp
+Each log entry includes timestamp, level, and message.
 
 ## Important Notes
 
-⚠️ **Lab Use Only** - These modifications should ONLY be run in a non-production lab environment. They will deliberately weaken AD security.
+⚠️ **Lab Use Only** - These modifications deliberately weaken AD security. Run only in non-production lab environments.
 
 ⚠️ **Backup First** - Back up your AD before running this tool.
 
-⚠️ **Can't Break AD** - This tool is designed NOT to break AD, but to weaken it realistically. However:
-- Do not run on production
-- Test in isolated lab first
-- Monitor DC health after running
+✓ **Reversible** - All changes are logged and documented. Most can be manually reversed (see Reversal Guide below).
 
-✓ **Reversibility** - All changes are documented in logs. Most can be manually reversed by:
-- Removing created users (break-*)
-- Re-securing privilege groups
-- Resetting dSHeuristics
-- Reapplying proper group policies
+⚠️ **SMBv1 Requires Restart** - Phase 5 changes require Domain Controller restart to take effect.
 
-## Common Tasks
+## Reversal Guide
 
-### Revert Changes Manually
-
-1. **Remove created users:**
-   ```powershell
-   Get-ADUser -Filter "Name -like 'break-*'" | Remove-ADUser -Confirm:$false
-   ```
-
-2. **Remove users from Schema Admins:**
-   ```powershell
-   $group = Get-ADGroup "Schema Admins"
-   Get-ADUser -Filter "Name -like 'break-*'" | Remove-ADGroupMember -Identity $group -Confirm:$false
-   ```
-
-3. **Reset dSHeuristics:**
-   ```powershell
-   $dirService = Get-ADObject "CN=Directory Service,CN=Windows NT,CN=Services,CN=Configuration,DC=corp,DC=local"
-   Set-ADObject -Identity $dirService -Replace @{dSHeuristics = ""} 
-   ```
-
-### Check Current Score in DSP
-
-1. Log into your DSP instance
-2. Navigate to Security > Overview
-3. Review IOE AD categories to see impact of modules
-
-### Run Modules Incrementally
-
-Run one module at a time, check DSP score after each, then add more:
+### Remove GPOs Created by Module 01
 
 ```powershell
-.\dsp-breakAD.ps1 -ModuleNames "InfrastructureSecurity"
-# Check DSP score, observe findings
-.\dsp-breakAD.ps1 -ModuleNames "AccountSecurity"
-# Check DSP score again
-# Continue...
+# List GPOs created by dsp-breakAD
+Get-GPO -All | Where-Object { $_.DisplayName -like "dsp-breakAD-*" } | Select-Object DisplayName
+
+# Remove specific GPO (e.g., LDAP Signing)
+Remove-GPO -Name "dsp-breakAD-LDAP-Signing" -Confirm:$false
+
+# Remove all dsp-breakAD GPOs
+Get-GPO -All | Where-Object { $_.DisplayName -like "dsp-breakAD-*" } | Remove-GPO -Confirm:$false
+```
+
+### Disable Print Spooler on DCs
+
+```powershell
+Get-ADDomainController -Filter * | ForEach-Object {
+    Set-Service -Name Spooler -StartupType Disabled -ComputerName $_.HostName
+    Stop-Service -Name Spooler -ComputerName $_.HostName -Force
+}
+```
+
+### Reset dSHeuristics
+
+```powershell
+$rootDSE = Get-ADRootDSE
+$configNC = $rootDSE.configurationNamingContext
+$directoryServicePath = "CN=Directory Service,CN=Windows NT,CN=Services,$configNC"
+
+$ldapPath = "LDAP://$directoryServicePath"
+$directoryService = [ADSI]$ldapPath
+$directoryService.Put("dSHeuristics", "")
+$directoryService.SetInfo()
+```
+
+### Remove Anonymous from Pre-Windows 2000 Compatible Access
+
+```powershell
+$group = Get-ADGroup "Pre-Windows 2000 Compatible Access"
+$groupADSI = [ADSI]"LDAP://$($group.DistinguishedName)"
+$groupADSI.Remove("LDAP://<SID=S-1-5-7>")
+$groupADSI.SetInfo()
 ```
 
 ## Troubleshooting
 
-### Script fails with "Administrator privileges required"
-- Run PowerShell as Administrator
-- Verify your account has Domain Admin rights
+### Preflight Fails: "Cannot validate argument on parameter 'SearchBase'"
+- Ensure domain can be discovered with `Get-ADDomain`
+- Check ActiveDirectory module is loaded
+- Verify administrator rights
 
-### Modules don't execute
-- Check that module files exist in `modules/` folder
+### Module Fails to Load
+- Check module file exists in current directory
 - Verify naming convention: `dsp-BreakAD-Module-##-*.psm1`
-- Check logs for specific errors
+- Check log file for specific error
 
-### Changes not appearing in DSP
-- Wait for DSP assessment to complete (usually 15-30 min)
+### GPO Not Applying
+- Run manual `gpupdate /force` on affected DCs
+- Check DC event logs for policy errors
+- Verify GPO is linked to Domain Controllers OU
+- Check DC has read permissions on GPO
+
+### Changes Not Appearing in DSP
+- Wait 15-30 minutes for DSP scan to complete
 - Force DSP scan if available
-- Verify changes were logged successfully
+- Check logs confirm changes were applied
+- Verify changes persisted (don't revert on restart)
 
-### Can't undo changes
-- Reference the log file for exact changes made
-- Manually revert using documented LDAP paths
-- Restore from backup if available
+## Future Modules
 
-## Support
+Planned:
+- **Module 02:** Account Security
+- **Module 03:** AD Delegation
+- **Module 04:** Kerberos Security
+- **Module 05:** Group Policy Security
 
-For questions or issues:
-- Check log files in `logs/` folder
-- Review module-specific comments in code
+## Support & Contact
+
+For issues or questions:
+- Check logs in `logs/` folder
+- Review PROJECT_NOTES.md for detailed information
+- Verify prerequisites are met
 - Contact: bob@semperis.com
 
 ---
 
 **Version:** 1.0.0  
 **Last Updated:** December 2025  
-**Status:** Lab/Demo Use Only
+**Status:** Lab/Demo Use Only - Infrastructure Security Module Production Ready

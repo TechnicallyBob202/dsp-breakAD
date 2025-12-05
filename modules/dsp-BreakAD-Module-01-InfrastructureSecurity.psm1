@@ -167,16 +167,22 @@ function Invoke-ModuleInfrastructureSecurity {
             Set-GPPrefRegistryValue -Name $gpoName -Context Computer -Action Update -Key "HKLM\System\CurrentControlSet\Services\NTDS\Parameters" -ValueName "LDAPServerIntegrity" -Value 0 -Type DWORD -ErrorAction Stop | Out-Null
             Write-Log "      [+] Registry preference set (LDAPServerIntegrity = 0)" -Level SUCCESS
             
-            Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
-            $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
-            foreach ($dcItem in $domainControllers) {
-                try {
-                    Invoke-Command -ComputerName $dcItem.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
-                    Write-Log "      [+] GPO refresh initiated on $($dcItem.HostName)" -Level SUCCESS
+            # Only refresh GPO if GPO was just created
+            if (-not $gpo) {
+                Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
+                $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
+                foreach ($dcItem in $domainControllers) {
+                    try {
+                        Invoke-Command -ComputerName $dcItem.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
+                        Write-Log "      [+] GPO refresh initiated on $($dcItem.HostName)" -Level SUCCESS
+                    }
+                    catch {
+                        Write-Log "      [!] Error refreshing GPO on $($dcItem.HostName): $_" -Level WARNING
+                    }
                 }
-                catch {
-                    Write-Log "      [!] Error refreshing GPO on $($dcItem.HostName): $_" -Level WARNING
-                }
+            }
+            else {
+                Write-Log "    [*] GPO already exists, skipping refresh" -Level INFO
             }
         }
         catch {
@@ -224,16 +230,22 @@ function Invoke-ModuleInfrastructureSecurity {
             Set-GPPrefRegistryValue -Name $gpoName -Context Computer -Action Update -Key "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" -ValueName "RequireSecuritySignature" -Value 0 -Type DWORD -ErrorAction Stop | Out-Null
             Write-Log "      [+] Registry preference set (RequireSecuritySignature = 0)" -Level SUCCESS
             
-            Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
-            $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
-            foreach ($dcItem in $domainControllers) {
-                try {
-                    Invoke-Command -ComputerName $dcItem.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
-                    Write-Log "      [+] GPO refresh initiated on $($dcItem.HostName)" -Level SUCCESS
+            # Only refresh GPO if GPO was just created
+            if (-not $gpo) {
+                Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
+                $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
+                foreach ($dcItem in $domainControllers) {
+                    try {
+                        Invoke-Command -ComputerName $dcItem.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
+                        Write-Log "      [+] GPO refresh initiated on $($dcItem.HostName)" -Level SUCCESS
+                    }
+                    catch {
+                        Write-Log "      [!] Error refreshing GPO on $($dcItem.HostName): $_" -Level WARNING
+                    }
                 }
-                catch {
-                    Write-Log "      [!] Error refreshing GPO on $($dcItem.HostName): $_" -Level WARNING
-                }
+            }
+            else {
+                Write-Log "    [*] GPO already exists, skipping refresh" -Level INFO
             }
         }
         catch {
@@ -282,16 +294,22 @@ function Invoke-ModuleInfrastructureSecurity {
             Set-GPPrefRegistryValue -Name $gpoName -Context Computer -Action Update -Key "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" -ValueName "SMB1" -Value 1 -Type DWORD -ErrorAction Stop | Out-Null
             Write-Log "      [+] Registry preference set (SMB1 = 1)" -Level SUCCESS
             
-            Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
-            $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
-            foreach ($dcItem in $domainControllers) {
-                try {
-                    Invoke-Command -ComputerName $dcItem.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
-                    Write-Log "      [+] GPO refresh initiated on $($dcItem.HostName)" -Level SUCCESS
+            # Only refresh GPO if GPO was just created
+            if (-not $gpo) {
+                Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
+                $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
+                foreach ($dcItem in $domainControllers) {
+                    try {
+                        Invoke-Command -ComputerName $dcItem.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
+                        Write-Log "      [+] GPO refresh initiated on $($dcItem.HostName)" -Level SUCCESS
+                    }
+                    catch {
+                        Write-Log "      [!] Error refreshing GPO on $($dcItem.HostName): $_" -Level WARNING
+                    }
                 }
-                catch {
-                    Write-Log "      [!] Error refreshing GPO on $($dcItem.HostName): $_" -Level WARNING
-                }
+            }
+            else {
+                Write-Log "    [*] GPO already exists, skipping refresh" -Level INFO
             }
         }
         catch {
@@ -379,113 +397,13 @@ function Invoke-ModuleInfrastructureSecurity {
         Write-Log "  [*] AdminSDHolder modification disabled in config" -Level INFO
     }
     
-    Write-Log "" -Level INFO
-    
+
+
     ################################################################################
-    # PHASE 8: SET DANGEROUS TRUST ATTRIBUTES
-    ################################################################################
-    
-    Write-Log "PHASE 8: Set Dangerous Trust Attributes" -Level INFO
-    
-    if ($config['InfrastructureSecurity_DangerousTrustAttribute'] -eq 'true') {
-        Write-Log "  Setting dangerous trust attributes..." -Level INFO
-        
-        try {
-            # Get all trusts in the domain
-            $trusts = Get-ADTrust -Filter * -ErrorAction SilentlyContinue
-            
-            if ($trusts) {
-                foreach ($trust in $trusts) {
-                    Write-Log "    Processing trust: $($trust.Name)" -Level INFO
-                    
-                    try {
-                        # Set TrustDirection to Bidirectional if not already
-                        if ($trust.Direction -ne "Bidirectional") {
-                            Set-ADTrust -Identity $trust.Name -Direction Bidirectional -ErrorAction Stop
-                            Write-Log "      [+] Set to Bidirectional" -Level SUCCESS
-                        }
-                        
-                        # Enable SIDHistory on trust (dangerous)
-                        Set-ADTrust -Identity $trust.Name -SIDHistoryEnabled $true -ErrorAction Stop
-                        Write-Log "      [+] SIDHistory enabled on trust" -Level SUCCESS
-                    }
-                    catch {
-                        Write-Log "      [!] Error: $_" -Level WARNING
-                    }
-                }
-            }
-            else {
-                Write-Log "    [*] No trusts found in domain" -Level INFO
-            }
-        }
-        catch {
-            Write-Log "  [!] Error: $_" -Level WARNING
-        }
-    }
-    else {
-        Write-Log "  [*] Dangerous trust attributes disabled in config" -Level INFO
-    }
-    
-    Write-Log "" -Level INFO
-    
-    ################################################################################
-    # PHASE 9: ADD WELL-KNOWN PRIVILEGED SIDs TO SIDHistory
+    # PHASE 8: MODIFY SCHEMA PERMISSIONS
     ################################################################################
     
-    Write-Log "PHASE 9: Add Well-Known Privileged SIDs to SIDHistory" -Level INFO
-    
-    if ($config['InfrastructureSecurity_AddPrivilegedSIDHistory'] -eq 'true') {
-        Write-Log "  Adding privileged SIDs to user SIDHistory..." -Level INFO
-        
-        try {
-            # Well-known privileged SIDs to add
-            $privilegedSIDs = @(
-                "S-1-5-32-548",  # Account Operators
-                "S-1-5-32-549",  # Server Operators
-                "S-1-5-32-550"   # Print Operators
-            )
-            
-            # Find test user to add SIDHistory to
-            $testUsers = Get-ADUser -Filter "Name -like 'break-*'" -ErrorAction SilentlyContinue | Select-Object -First 3
-            
-            if ($testUsers) {
-                foreach ($user in $testUsers) {
-                    Write-Log "    Processing user: $($user.Name)" -Level INFO
-                    
-                    try {
-                        foreach ($sid in $privilegedSIDs) {
-                            # Use ADSI to add SIDHistory
-                            $userADSI = [ADSI]"LDAP://$($user.DistinguishedName)"
-                            $userADSI.PsBase.InvokeSet("SIDHistory", $sid)
-                            $userADSI.SetInfo()
-                            
-                            Write-Log "      [+] Added SID $sid to SIDHistory" -Level SUCCESS
-                        }
-                    }
-                    catch {
-                        Write-Log "      [!] Error adding SIDHistory: $_" -Level WARNING
-                    }
-                }
-            }
-            else {
-                Write-Log "    [*] No test users found (create users first)" -Level INFO
-            }
-        }
-        catch {
-            Write-Log "  [!] Error: $_" -Level WARNING
-        }
-    }
-    else {
-        Write-Log "  [*] SIDHistory modification disabled in config" -Level INFO
-    }
-    
-    Write-Log "" -Level INFO
-    
-    ################################################################################
-    # PHASE 10: MODIFY SCHEMA PERMISSIONS
-    ################################################################################
-    
-    Write-Log "PHASE 10: Modify Schema Permissions" -Level INFO
+    Write-Log "PHASE 8: Modify Schema Permissions" -Level INFO
     
     if ($config['InfrastructureSecurity_ModifySchemaPermissions'] -eq 'true') {
         Write-Log "  Modifying schema object permissions..." -Level INFO
@@ -534,10 +452,10 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 11: UNSECURED DNS CONFIGURATION
+    # PHASE 9: UNSECURED DNS CONFIGURATION
     ################################################################################
     
-    Write-Log "PHASE 11: Configure Unsecured DNS Updates" -Level INFO
+    Write-Log "PHASE 9: Configure Unsecured DNS Updates" -Level INFO
     
     if ($config['InfrastructureSecurity_UnsecuredDNS'] -eq 'true') {
         Write-Log "  Configuring DNS to allow unsecured updates..." -Level INFO
@@ -551,22 +469,22 @@ function Invoke-ModuleInfrastructureSecurity {
                 try {
                     # Configure DNS zone to allow non-secure dynamic updates
                     Invoke-Command -ComputerName $dcItem.HostName -ScriptBlock {
-                        param($domainName)
+                        # Get all zones
+                        $zones = Get-DnsServerZone -ErrorAction SilentlyContinue
                         
-                        # Get DNS zone
-                        $zone = Get-DnsServerZone -Name $domainName -ErrorAction SilentlyContinue
-                        
-                        if ($zone) {
-                            # Set zone to allow non-secure updates
-                            Set-DnsServerZoneAging -Name $domainName -Aging $true -ErrorAction SilentlyContinue
-                            Set-DnsServerPrimaryZone -Name $domainName -DynamicUpdate NonsecureAndSecure -ErrorAction Stop
-                            Write-Output "Updated"
+                        if ($zones) {
+                            foreach ($zone in $zones) {
+                                if ($zone.ZoneType -eq "Primary" -and -not $zone.IsReverseLookupZone) {
+                                    Set-DnsServerPrimaryZone -Name $zone.Name -DynamicUpdate NonsecureAndSecure -ErrorAction SilentlyContinue
+                                    Write-Output "Configured: $($zone.Name)"
+                                }
+                            }
                         }
                         else {
-                            Write-Output "Zone not found"
+                            Write-Output "No zones found"
                         }
-                    } -ArgumentList $domain.Name -ErrorAction Stop | ForEach-Object {
-                        Write-Log "      [+] DNS zone configured: $_" -Level SUCCESS
+                    } -ErrorAction Stop | ForEach-Object {
+                        Write-Log "      [+] $_" -Level SUCCESS
                     }
                 }
                 catch {
