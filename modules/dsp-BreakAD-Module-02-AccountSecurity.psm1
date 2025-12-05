@@ -39,7 +39,12 @@ function Invoke-ModuleAccountSecurity {
                     [string[]]$GroupsToAdd = @()
                 )
                 
-                $existing = Get-ADUser -Filter {SamAccountName -eq $SamAccountName} -ErrorAction SilentlyContinue
+                # Add random suffix to avoid recycle bin conflicts
+                $randomSuffix = Get-Random -Minimum 100 -Maximum 999
+                $uniqueSamName = "$SamAccountName$randomSuffix"
+                $uniqueDisplayName = "$DisplayName #$randomSuffix"
+                
+                $existing = Get-ADUser -Filter {SamAccountName -eq $uniqueSamName} -ErrorAction SilentlyContinue
                 if ($existing) {
                     Remove-ADUser -Identity $existing -Confirm:$false -ErrorAction SilentlyContinue
                     Start-Sleep -Milliseconds 500
@@ -47,9 +52,9 @@ function Invoke-ModuleAccountSecurity {
                 
                 $securePassword = ConvertTo-SecureString -AsPlainText -Force -String $Password
                 
-                $user = New-ADUser -SamAccountName $SamAccountName `
-                    -Name $DisplayName `
-                    -DisplayName $DisplayName `
+                $user = New-ADUser -SamAccountName $uniqueSamName `
+                    -Name $uniqueDisplayName `
+                    -DisplayName $uniqueDisplayName `
                     -AccountPassword $securePassword `
                     -Enabled $Enabled `
                     -PasswordNotRequired $PasswordNotRequired `
@@ -81,8 +86,8 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "Enabling IOE: Privileged accounts with password that never expires" -Level INFO
                 
                 Try {
-                    For ($i = 1; $i -le 3; $i++) {
-                        $user = New-BreakAccount -SamAccountName "break-privpwdexp$i" `
+                    For ($i = 1; $i -le 1; $i++) {
+                        $user = New-BreakAccount -SamAccountName "break-ppwd$i" `
                             -DisplayName "Break: Priv Account Pwd Never Expires $i" `
                             -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZPrivExp$i" `
                             -GroupsToAdd @("Domain Admins")
@@ -100,8 +105,8 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "Enabling IOE: User accounts with reversible encryption" -Level INFO
                 
                 Try {
-                    For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "break-revenc$i" `
+                    For ($i = 1; $i -le 1; $i++) {
+                        $user = New-BreakAccount -SamAccountName "break-renc$i" `
                             -DisplayName "Break: Reversible Encryption $i" `
                             -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZRevEnc$i"
                         
@@ -118,7 +123,7 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "Enabling IOE: User accounts with DES encryption" -Level INFO
                 
                 Try {
-                    For ($i = 1; $i -le 2; $i++) {
+                    For ($i = 1; $i -le 1; $i++) {
                         $user = New-BreakAccount -SamAccountName "break-des$i" `
                             -DisplayName "Break: DES Encryption $i" `
                             -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZDes$i"
@@ -136,8 +141,8 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "Enabling IOE: User accounts with password not required" -Level INFO
                 
                 Try {
-                    For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "break-nopwd$i" `
+                    For ($i = 1; $i -le 1; $i++) {
+                        $user = New-BreakAccount -SamAccountName "break-npwd$i" `
                             -DisplayName "Break: Password Not Required $i" `
                             -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZNoPwd$i" `
                             -PasswordNotRequired $true
@@ -154,8 +159,8 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "Enabling IOE: Users with pre-authentication disabled" -Level INFO
                 
                 Try {
-                    For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "break-preauth$i" `
+                    For ($i = 1; $i -le 1; $i++) {
+                        $user = New-BreakAccount -SamAccountName "break-prea$i" `
                             -DisplayName "Break: Pre-Auth Disabled $i" `
                             -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZPreAuth$i"
                         
@@ -172,8 +177,8 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "Enabling IOE: Unprivileged accounts with adminCount=1" -Level INFO
                 
                 Try {
-                    For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "break-admincnt$i" `
+                    For ($i = 1; $i -le 1; $i++) {
+                        $user = New-BreakAccount -SamAccountName "break-acnt$i" `
                             -DisplayName "Break: AdminCount Unprivileged $i" `
                             -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZAdminCnt$i"
                         
@@ -190,8 +195,8 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "Enabling IOE: User accounts with old passwords (90+ days)" -Level INFO
                 
                 Try {
-                    For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "break-oldpwd$i" `
+                    For ($i = 1; $i -le 1; $i++) {
+                        $user = New-BreakAccount -SamAccountName "break-opwd$i" `
                             -DisplayName "Break: Old Password $i" `
                             -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZOldPwd$i"
                         
@@ -216,8 +221,8 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "Enabling IOE: Privileged users that are disabled" -Level INFO
                 
                 Try {
-                    For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "break-disabledp$i" `
+                    For ($i = 1; $i -le 1; $i++) {
+                        $user = New-BreakAccount -SamAccountName "break-dpriv$i" `
                             -DisplayName "Break: Disabled Privileged User $i" `
                             -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZDisPriv$i" `
                             -Enabled $true `
@@ -236,8 +241,8 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "Enabling IOE: Recent privileged account creation activity" -Level INFO
                 
                 Try {
-                    For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "break-newpriv$i" `
+                    For ($i = 1; $i -le 1; $i++) {
+                        $user = New-BreakAccount -SamAccountName "break-npr$i" `
                             -DisplayName "Break: New Privileged Account $i" `
                             -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZNewPriv$i" `
                             -GroupsToAdd @("Domain Admins", "Schema Admins")
@@ -254,8 +259,8 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "Enabling IOE: AD objects created within 10 days" -Level INFO
                 
                 Try {
-                    For ($i = 1; $i -le 3; $i++) {
-                        $user = New-BreakAccount -SamAccountName "break-newobj$i" `
+                    For ($i = 1; $i -le 1; $i++) {
+                        $user = New-BreakAccount -SamAccountName "break-nobj$i" `
                             -DisplayName "Break: New Object $i" `
                             -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZNewObj$i"
                         
@@ -271,7 +276,7 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "Enabling IOE: Smart Card with old password" -Level INFO
                 
                 Try {
-                    $user = New-BreakAccount -SamAccountName "break-smartcard1" `
+                    $user = New-BreakAccount -SamAccountName "break-scard1" `
                         -DisplayName "Break: Smart Card Old Password" `
                         -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZSmartCard1"
                     
