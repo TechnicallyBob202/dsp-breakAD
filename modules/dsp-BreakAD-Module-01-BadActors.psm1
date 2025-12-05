@@ -55,9 +55,10 @@ function Invoke-ModuleBadActors {
     $successCount = 0
     $skipCount = 0
     
-    0..200 | ForEach-Object {
-        $index = $_
-        $samAccountName = "BdActr$domainNetBIOS$index"
+    # Create 0-200 (201 total accounts) to cover all module needs
+    # This creates BdActrD30, BdActrD31, ..., BdActrD3200
+    for ($i = 0; $i -le 200; $i++) {
+        $samAccountName = "BdActr$domainNetBIOS$i"
         
         # Check if account already exists
         $existing = Get-ADUser -Filter { SamAccountName -eq $samAccountName } -ErrorAction SilentlyContinue

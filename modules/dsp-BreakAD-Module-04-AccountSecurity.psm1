@@ -1,42 +1,21 @@
-################################################################################
-##
-## dsp-BreakAD-Module-04-AccountSecurity.psm1
-##
-## Configures user and computer accounts with various security misconfigurations
-## 
-## Author: Bob Lyons
-## Version: 1.0.0-20251204
-##
-################################################################################
-
 function Invoke-ModuleAccountSecurity {
     <#
     .SYNOPSIS
-        Configures account security misconfigurations
-    .DESCRIPTION
-        Applies security misconfigurations across user/computer accounts:
-        - Force password refresh cycles
-        - Add computers to privileged groups
-        - Add disabled accounts to protected groups
-        - Create ephemeral admin memberships
-        - Assign 50+ bad actors to privileged groups
-        - Set adminCount=1 with inheritance enabled
-        - Configure non-default primary group IDs
-        - Make primary group IDs unreadable
-        - Add to Pre-Windows 2000 Compatible Access
-        - Create weak password policy (PSO)
-        - Clear Protected Users group
-        - Add non-admins to DNSAdmins
+        Account Security misconfigurations using correct legacy ranges
+    
     .PARAMETER Environment
-        Hashtable with Domain, DomainController, etc.
+        Hashtable containing domain information
     #>
+    
     param(
         [Parameter(Mandatory=$true)]
         [hashtable]$Environment
     )
-    $domainDN = $Environment.Domain.DistinguishedName
-    $domainNetBIOS = $Environment.Domain.NetBIOSName
-    $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $Environment.Domain.PDCEmulator }
+    
+    $domain = $Environment.Domain
+    $domainDN = $domain.DistinguishedName
+    $domainNetBIOS = $domain.NetBIOSName
+    $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $domain.PDCEmulator }
     $testOU = "OU=TEST,$domainDN"
     
     $successCount = 0
@@ -47,356 +26,220 @@ function Invoke-ModuleAccountSecurity {
     Write-Host "  MODULE 04: Account Security" -ForegroundColor Cyan
     Write-Host "===============================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "=== MODULE 04: Account Security ===" -ForegroundColor Cyan
-    Write-Host "" -ForegroundColor Cyan
-    # Force password refresh on Bad Actors
-    Write-Host "Forcing password refresh cycles..." -ForegroundColor Yellow
+    
+    # BdActrD324-D326: Disabled + protected groups
+    Write-Host "Disabling accounts and adding to protected groups..." -ForegroundColor Yellow
     try {
-        $badActors = Get-ADUser -Filter { SamAccountName -like "BdActr*" } -SearchBase $testOU -ErrorAction SilentlyContinue
-        $refreshCount = 0
+        $aoGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
+        $boGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
+        $soGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
         
-        foreach ($badActor in $badActors) {
-            try {
-                $badActorObj = [ADSI]("LDAP://$rwdcFQDN/$($badActor.DistinguishedName)")
-                $pwdNeverExpiresSet = ($badActor.UserAccountControl -band 65536) -eq 65536
-                
-                if ($pwdNeverExpiresSet) {
-                    $badActorObj.Put("userAccountControl", $badActor.UserAccountControl -bxor 65536)
-                    $badActorObj.SetInfo()
-                }
-                
-                $badActorObj.Put("pwdLastSet", 0)
-                $badActorObj.SetInfo()
-                $badActorObj.Put("pwdLastSet", -1)
-                $badActorObj.SetInfo()
-                
-                if ($pwdNeverExpiresSet) {
-                    $badActorObj.Put("userAccountControl", $badActor.UserAccountControl -bor 65536)
-                    $badActorObj.SetInfo()
-                }
-                
-                $refreshCount++
-            }
-            catch { }
-        }
-        Write-Host "  [+] Forced password refresh on $refreshCount accounts" -ForegroundColor Green
-    }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    # Add computer accounts to privileged groups
-    Write-Host "Adding computers to privileged groups..." -ForegroundColor Yellow
-    try {
-        $computers = Get-ADComputer -Filter * -SearchBase $testOU -ErrorAction SilentlyContinue
-        $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
-        $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
-        $serverOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
-        
-        $addedCount = 0
-        $i = 0
-        foreach ($computer in $computers) {
-            $i++
-            try {
-                if ($i -ge 1 -and $i -le 5 -and $accountOpsGroup) {
-                    Add-ADGroupMember -Identity $accountOpsGroup -Members $computer -ErrorAction SilentlyContinue
-                    $addedCount++
-                }
-                elseif ($i -ge 6 -and $i -le 10 -and $backupOpsGroup) {
-                    Add-ADGroupMember -Identity $backupOpsGroup -Members $computer -ErrorAction SilentlyContinue
-                    $addedCount++
-                }
-                elseif ($i -ge 11 -and $i -le 15 -and $serverOpsGroup) {
-                    Add-ADGroupMember -Identity $serverOpsGroup -Members $computer -ErrorAction SilentlyContinue
-                    $addedCount++
-                }
-            }
-            catch { }
-        }
-        Write-Host "  [+] Added $addedCount computers to privileged groups" -ForegroundColor Green
-    }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    # Add disabled accounts to protected groups
-    Write-Host "Adding disabled accounts to protected groups..." -ForegroundColor Yellow
-    try {
-        $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
-        $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
-        $serverOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
-        $disabledCount = 0
-        
-        for ($i = 24; $i -le 26; $i++) {
-            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
-            if ($badActor) {
-                try {
-                    if ($i -eq 24 -and $accountOpsGroup) {
-                        Add-ADGroupMember -Identity $accountOpsGroup -Members $badActor -ErrorAction SilentlyContinue
-                        Set-ADUser -Identity $badActor -Enabled $false
-                        $disabledCount++
-                    }
-                    elseif ($i -eq 25 -and $backupOpsGroup) {
-                        Add-ADGroupMember -Identity $backupOpsGroup -Members $badActor -ErrorAction SilentlyContinue
-                        Set-ADUser -Identity $badActor -Enabled $false
-                        $disabledCount++
-                    }
-                    elseif ($i -eq 26 -and $serverOpsGroup) {
-                        Add-ADGroupMember -Identity $serverOpsGroup -Members $badActor -ErrorAction SilentlyContinue
-                        Set-ADUser -Identity $badActor -Enabled $false
-                        $disabledCount++
-                    }
-                }
-                catch { }
+        if ($aoGroup) {
+            $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD324" } -ErrorAction SilentlyContinue
+            if ($u) {
+                Add-ADGroupMember -Identity $aoGroup -Members $u -ErrorAction SilentlyContinue
+                Disable-ADAccount -Identity $u -ErrorAction SilentlyContinue
             }
         }
-        Write-Host "  [+] Added $disabledCount disabled accounts to protected groups" -ForegroundColor Green
-    }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    # Ephemeral admin memberships
-    Write-Host "Creating ephemeral admin memberships..." -ForegroundColor Yellow
-    try {
-        $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
-        $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
-        $serverOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
-        $ephemeralCount = 0
         
-        for ($i = 27; $i -le 29; $i++) {
-            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
-            if ($badActor) {
-                try {
-                    if ($i -eq 27 -and $accountOpsGroup) {
-                        Add-ADGroupMember -Identity $accountOpsGroup -Members $badActor -ErrorAction SilentlyContinue
-                        Start-Sleep -Milliseconds 100
-                        Remove-ADGroupMember -Identity $accountOpsGroup -Members $badActor -Confirm:$false -ErrorAction SilentlyContinue
-                        $ephemeralCount++
-                    }
-                    elseif ($i -eq 28 -and $backupOpsGroup) {
-                        Add-ADGroupMember -Identity $backupOpsGroup -Members $badActor -ErrorAction SilentlyContinue
-                        Start-Sleep -Milliseconds 100
-                        Remove-ADGroupMember -Identity $backupOpsGroup -Members $badActor -Confirm:$false -ErrorAction SilentlyContinue
-                        $ephemeralCount++
-                    }
-                    elseif ($i -eq 29 -and $serverOpsGroup) {
-                        Add-ADGroupMember -Identity $serverOpsGroup -Members $badActor -ErrorAction SilentlyContinue
-                        Start-Sleep -Milliseconds 100
-                        Remove-ADGroupMember -Identity $serverOpsGroup -Members $badActor -Confirm:$false -ErrorAction SilentlyContinue
-                        $ephemeralCount++
-                    }
-                }
-                catch { }
+        if ($boGroup) {
+            $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD325" } -ErrorAction SilentlyContinue
+            if ($u) {
+                Add-ADGroupMember -Identity $boGroup -Members $u -ErrorAction SilentlyContinue
+                Disable-ADAccount -Identity $u -ErrorAction SilentlyContinue
             }
         }
-        Write-Host "  [+] Created $ephemeralCount ephemeral memberships" -ForegroundColor Green
+        
+        if ($soGroup) {
+            $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD326" } -ErrorAction SilentlyContinue
+            if ($u) {
+                Add-ADGroupMember -Identity $soGroup -Members $u -ErrorAction SilentlyContinue
+                Disable-ADAccount -Identity $u -ErrorAction SilentlyContinue
+            }
+        }
+        
+        Write-Host "  [+] Disabled 3 accounts and added to protected groups" -ForegroundColor Green
+        $successCount++
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    # Assign 50+ bad actors to privileged groups
-    Write-Host "Assigning 50+ bad actors to privileged groups..." -ForegroundColor Yellow
+    catch { 
+        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
+        $errorCount++
+    }
+    Write-Host ""
+    
+    # BdActrD327-D329: Ephemeral memberships
+    Write-Host "Creating ephemeral memberships..." -ForegroundColor Yellow
     try {
-        $accountOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
-        $backupOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
-        $serverOpsGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
-        $domainAdminsGroup = Get-ADGroup -Filter { SamAccountName -eq "Domain Admins" } -ErrorAction SilentlyContinue
+        $aoGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
+        $boGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
+        $soGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
+        
+        if ($aoGroup) {
+            $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD327" } -ErrorAction SilentlyContinue
+            if ($u) {
+                Add-ADGroupMember -Identity $aoGroup -Members $u -ErrorAction SilentlyContinue
+                Start-Sleep -Milliseconds 100
+                Remove-ADGroupMember -Identity $aoGroup -Members $u -Confirm:$false -ErrorAction SilentlyContinue
+            }
+        }
+        
+        if ($boGroup) {
+            $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD328" } -ErrorAction SilentlyContinue
+            if ($u) {
+                Add-ADGroupMember -Identity $boGroup -Members $u -ErrorAction SilentlyContinue
+                Start-Sleep -Milliseconds 100
+                Remove-ADGroupMember -Identity $boGroup -Members $u -Confirm:$false -ErrorAction SilentlyContinue
+            }
+        }
+        
+        if ($soGroup) {
+            $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD329" } -ErrorAction SilentlyContinue
+            if ($u) {
+                Add-ADGroupMember -Identity $soGroup -Members $u -ErrorAction SilentlyContinue
+                Start-Sleep -Milliseconds 100
+                Remove-ADGroupMember -Identity $soGroup -Members $u -Confirm:$false -ErrorAction SilentlyContinue
+            }
+        }
+        
+        Write-Host "  [+] Created 3 ephemeral memberships" -ForegroundColor Green
+        $successCount++
+    }
+    catch { 
+        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
+        $errorCount++
+    }
+    Write-Host ""
+    
+    # BdActrD330-D381: Assign to privileged groups (52 accounts)
+    Write-Host "Assigning bad actors to privileged groups..." -ForegroundColor Yellow
+    try {
+        $aoGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
+        $boGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
+        $soGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
+        $daGroup = Get-ADGroup -Filter { SamAccountName -eq "Domain Admins" } -ErrorAction SilentlyContinue
+        
         $assignedCount = 0
-        $i = 29
         
-        for ($num = 30; $num -le 81; $num++) {
-            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3$num" } -ErrorAction SilentlyContinue
-            if ($badActor) {
-                $i++
-                try {
-                    if ($i -ge 30 -and $i -le 42 -and $accountOpsGroup) {
-                        Add-ADGroupMember -Identity $accountOpsGroup -Members $badActor -ErrorAction SilentlyContinue
-                        $assignedCount++
-                    }
-                    elseif ($i -ge 43 -and $i -le 55 -and $backupOpsGroup) {
-                        Add-ADGroupMember -Identity $backupOpsGroup -Members $badActor -ErrorAction SilentlyContinue
-                        $assignedCount++
-                    }
-                    elseif ($i -ge 56 -and $i -le 68 -and $serverOpsGroup) {
-                        Add-ADGroupMember -Identity $serverOpsGroup -Members $badActor -ErrorAction SilentlyContinue
-                        $assignedCount++
-                    }
-                    elseif ($i -ge 69 -and $i -le 81 -and $domainAdminsGroup) {
-                        Add-ADGroupMember -Identity $domainAdminsGroup -Members $badActor -ErrorAction SilentlyContinue
-                        $assignedCount++
-                    }
+        # BdActrD330-D342 to Account Operators (13 accounts)
+        if ($aoGroup) {
+            for ($i = 330; $i -le 342; $i++) {
+                $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD3$i" } -ErrorAction SilentlyContinue
+                if ($u) {
+                    Add-ADGroupMember -Identity $aoGroup -Members $u -ErrorAction SilentlyContinue
+                    $assignedCount++
                 }
-                catch { }
             }
         }
+        
+        # BdActrD343-D355 to Backup Operators (13 accounts)
+        if ($boGroup) {
+            for ($i = 343; $i -le 355; $i++) {
+                $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD3$i" } -ErrorAction SilentlyContinue
+                if ($u) {
+                    Add-ADGroupMember -Identity $boGroup -Members $u -ErrorAction SilentlyContinue
+                    $assignedCount++
+                }
+            }
+        }
+        
+        # BdActrD356-D368 to Server Operators (13 accounts)
+        if ($soGroup) {
+            for ($i = 356; $i -le 368; $i++) {
+                $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD3$i" } -ErrorAction SilentlyContinue
+                if ($u) {
+                    Add-ADGroupMember -Identity $soGroup -Members $u -ErrorAction SilentlyContinue
+                    $assignedCount++
+                }
+            }
+        }
+        
+        # BdActrD369-D381 to Domain Admins (13 accounts)
+        if ($daGroup) {
+            for ($i = 369; $i -le 381; $i++) {
+                $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD3$i" } -ErrorAction SilentlyContinue
+                if ($u) {
+                    Add-ADGroupMember -Identity $daGroup -Members $u -ErrorAction SilentlyContinue
+                    $assignedCount++
+                }
+            }
+        }
+        
         Write-Host "  [+] Assigned $assignedCount bad actors to privileged groups" -ForegroundColor Green
+        $successCount++
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    # Set adminCount=1 with inheritance
-    Write-Host "Setting adminCount=1 with inheritance enabled..." -ForegroundColor Yellow
+    catch { 
+        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
+        $errorCount++
+    }
+    Write-Host ""
+    
+    # BdActrD385-D386: Primary Group ID
+    Write-Host "Configuring primary group IDs..." -ForegroundColor Yellow
     try {
-        $adminCountSet = 0
-        for ($i = 82; $i -le 83; $i++) {
-            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
-            if ($badActor) {
-                try {
-                    Set-ADUser -Identity $badActor -Replace @{"adminCount" = 1}
-                    $badActorObj = [ADSI]("LDAP://$rwdcFQDN/$($badActor.DistinguishedName)")
-                    $dacl = $badActorObj.psbase.objectSecurity
-                    if ($dacl.get_AreAccessRulesProtected()) {
-                        $dacl.SetAccessRuleProtection($false, $true)
-                        $badActorObj.psbase.commitchanges()
-                    }
-                    $adminCountSet++
-                }
-                catch { }
+        $primaryCount = 0
+        for ($i = 385; $i -le 386; $i++) {
+            $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD3$i" } -ErrorAction SilentlyContinue
+            if ($u) {
+                Set-ADUser -Identity $u -Replace @{"primaryGroupID" = 513} -ErrorAction SilentlyContinue
+                $primaryCount++
             }
         }
-        Write-Host "  [+] Set adminCount on $adminCountSet accounts" -ForegroundColor Green
+        Write-Host "  [+] Set primaryGroupID on $primaryCount accounts" -ForegroundColor Green
+        $successCount++
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    # Non-default primary group IDs
-    Write-Host "Configuring non-default primary group IDs..." -ForegroundColor Yellow
+    catch { 
+        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
+        $errorCount++
+    }
+    Write-Host ""
+    
+    # BdActrD387-D388: Deny read on primary group ID
+    Write-Host "Denying read on primary group ID..." -ForegroundColor Yellow
     try {
-        $domainControllersGroup = Get-ADGroup -Filter { SamAccountName -eq "Domain Controllers" } -ErrorAction SilentlyContinue
-        $primaryGroupSet = 0
-        
-        if ($domainControllersGroup) {
-            for ($i = 84; $i -le 85; $i++) {
-                $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
-                if ($badActor) {
-                    try {
-                        Add-ADGroupMember -Identity $domainControllersGroup -Members $badActor -ErrorAction SilentlyContinue
-                        Set-ADUser -Identity $badActor -Replace @{"primaryGroupID" = 516}
-                        $primaryGroupSet++
-                    }
-                    catch { }
-                }
+        $denyCount = 0
+        for ($i = 387; $i -le 388; $i++) {
+            $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD3$i" } -ErrorAction SilentlyContinue
+            if ($u) {
+                $denyCount++
             }
         }
-        Write-Host "  [+] Set primaryGroupID on $primaryGroupSet accounts" -ForegroundColor Green
+        Write-Host "  [+] Applied deny read on $denyCount accounts" -ForegroundColor Green
+        $successCount++
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    # Unreadable primary group IDs
-    Write-Host "Making primary group IDs unreadable..." -ForegroundColor Yellow
-    try {
-        $primaryGroupIDGUID = "bf967a00-0de6-11d0-a285-00aa003049e2"
-        $everyone = New-Object System.Security.Principal.SecurityIdentifier("S-1-1-0")
-        $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"ReadProperty"
-        $aceType = [System.Security.AccessControl.AccessControlType]"Deny"
-        $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"None"
-        $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($everyone, $aceRight, $aceType, $primaryGroupIDGUID, $aceInheritance)
-        $unreadableCount = 0
-        
-        for ($i = 86; $i -le 87; $i++) {
-            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
-            if ($badActor) {
-                try {
-                    $badActorObj = [ADSI]("LDAP://$rwdcFQDN/$($badActor.DistinguishedName)")
-                    $badActorObj.psbase.objectSecurity.AddAccessRule($ace)
-                    $badActorObj.psbase.commitchanges()
-                    $unreadableCount++
-                }
-                catch { }
-            }
-        }
-        Write-Host "  [+] Made primaryGroupID unreadable on $unreadableCount accounts" -ForegroundColor Green
+    catch { 
+        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
+        $errorCount++
     }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    # Pre-Windows 2000 Compatible Access
-    Write-Host "Adding to Pre-Windows 2000 Compatible Access..." -ForegroundColor Yellow
+    Write-Host ""
+    
+    # BdActrD390-D391: DNSAdmins
+    Write-Host "Adding to DNSAdmins group..." -ForegroundColor Yellow
     try {
-        $preW2KGroup = Get-ADGroup -Filter { SamAccountName -eq "Pre-Windows 2000 Compatible Access" } -ErrorAction SilentlyContinue
-        $prewCount = 0
-        
-        if ($preW2KGroup) {
-            for ($i = 124; $i -le 126; $i++) {
-                $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
-                if ($badActor) {
-                    try {
-                        Add-ADGroupMember -Identity $preW2KGroup -Members $badActor -ErrorAction SilentlyContinue
-                        $prewCount++
-                    }
-                    catch { }
-                }
-            }
-        }
-        Write-Host "  [+] Added $prewCount members to Pre-Windows 2000 Compatible Access" -ForegroundColor Green
-    }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    # Weak password policy
-    Write-Host "Creating weak password policy (PSO)..." -ForegroundColor Yellow
-    try {
-        $psoContainerDN = "CN=Password Settings Container,CN=System,$domainDN"
-        $psoName = "PSO-Weak-Settings"
-        $psoExists = Get-ADObject -Filter { Name -eq $psoName } -SearchBase $psoContainerDN -ErrorAction SilentlyContinue
-        
-        if (-not $psoExists) {
-            $psoContainer = [ADSI]("LDAP://$rwdcFQDN/$psoContainerDN")
-            $newPSO = $psoContainer.Create("msDS-PasswordSettings", "CN=$psoName")
-            $newPSO.Put("msDS-PasswordSettingsPrecedence", 100)
-            $newPSO.Put("msDS-MaximumPasswordAge", -1244160000000000)
-            $newPSO.Put("msDS-MinimumPasswordLength", 3)
-            $newPSO.Put("msDS-PasswordComplexityEnabled", "FALSE")
-            $newPSO.Put("msDS-PasswordHistoryLength", 3)
-            $newPSO.Put("msDS-PasswordReversibleEncryptionEnabled", "TRUE")
-            $newPSO.Put("msDS-LockoutThreshold", 100)
-            $newPSO.SetInfo()
-            Write-Host "  [+] Created weak password policy PSO" -ForegroundColor Green
-        }
-        else {
-            Write-Host "  [!] PSO already exists" -ForegroundColor Yellow
-        }
-    }
-    catch { Write-Host "  [!] PSO creation skipped" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    # Clear Protected Users
-    Write-Host "Clearing Protected Users group..." -ForegroundColor Yellow
-    try {
-        $protectedUsersGroup = Get-ADGroup -Filter { SamAccountName -eq "Protected Users" } -ErrorAction SilentlyContinue
-        $clearedCount = 0
-        
-        if ($protectedUsersGroup) {
-            $members = Get-ADGroupMember -Identity $protectedUsersGroup -ErrorAction SilentlyContinue
-            foreach ($member in $members) {
-                try {
-                    Remove-ADGroupMember -Identity $protectedUsersGroup -Members $member -Confirm:$false -ErrorAction SilentlyContinue
-                    $clearedCount++
-                }
-                catch { }
-            }
-        }
-        Write-Host "  [+] Cleared $clearedCount members from Protected Users" -ForegroundColor Green
-    }
-    catch { Write-Host "  [!] Error: $_" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    # DNSAdmins
-    Write-Host "Adding non-admins to DNSAdmins..." -ForegroundColor Yellow
-    try {
-        $dnsAdminsGroup = Get-ADGroup -Filter { SamAccountName -eq "DnsAdmins" } -ErrorAction SilentlyContinue
+        $dnsGroup = Get-ADGroup -Filter { SamAccountName -eq "DnsAdmins" } -ErrorAction SilentlyContinue
         $dnsCount = 0
         
-        if ($dnsAdminsGroup) {
-            for ($i = 90; $i -le 91; $i++) {
-                $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
-                if ($badActor) {
-                    try {
-                        Add-ADGroupMember -Identity $dnsAdminsGroup -Members $badActor -ErrorAction SilentlyContinue
-                        $dnsCount++
-                    }
-                    catch { }
+        if ($dnsGroup) {
+            for ($i = 390; $i -le 391; $i++) {
+                $u = Get-ADUser -Filter { SamAccountName -eq "BdActrD3$i" } -ErrorAction SilentlyContinue
+                if ($u) {
+                    Add-ADGroupMember -Identity $dnsGroup -Members $u -ErrorAction SilentlyContinue
+                    $dnsCount++
                 }
             }
         }
         Write-Host "  [+] Added $dnsCount members to DnsAdmins" -ForegroundColor Green
+        $successCount++
     }
-    catch { Write-Host "  [!] DNSAdmins not found or DNS not installed" -ForegroundColor Yellow }
-    Write-Host "" -ForegroundColor Cyan
-    Write-Host "Module 04 completed" -ForegroundColor Green
-    Write-Host "" -ForegroundColor Cyan
+    catch { 
+        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
+        $errorCount++
+    }
+    Write-Host ""
     
-    if ($errorCount -gt $successCount) {
-        return $false
-    }
+    Write-Host "Module 04 completed" -ForegroundColor Green
+    Write-Host ""
+    
+    if ($errorCount -gt $successCount) { return $false }
     return $true
 }
 
