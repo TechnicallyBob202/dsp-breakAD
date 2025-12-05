@@ -104,15 +104,27 @@ function Invoke-ModuleInfrastructureSecurity {
                         New-ADUser -Name $userName -SamAccountName $userName -AccountPassword (ConvertTo-SecureString "P@ssw0rd!$i" -AsPlainText -Force) -Enabled $true -ErrorAction Stop
                         Write-Log "  [+] Created user: $userName" -Level SUCCESS
                         
-                        # Wait for replication
-                        Start-Sleep -Milliseconds 500
+                        # Wait for replication and AD to catch up
+                        Start-Sleep -Seconds 2
                     }
                     else {
                         Write-Log "  [*] User already exists: $userName" -Level INFO
                     }
                     
-                    # Add to Schema Admins
-                    $user = Get-ADUser -Identity $userName -ErrorAction Stop
+                    # Verify user exists before adding to group
+                    $user = $null
+                    for ($retry = 0; $retry -lt 5; $retry++) {
+                        $user = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
+                        if ($user) {
+                            break
+                        }
+                        Start-Sleep -Milliseconds 500
+                    }
+                    
+                    if (-not $user) {
+                        throw "User $userName not found after creation"
+                    }
+                    
                     Add-ADGroupMember -Identity $schemaAdminsGroup -Members $user -ErrorAction SilentlyContinue
                     Write-LogChange -Object $userName -Attribute "Group Membership" -OldValue "N/A" -NewValue "Schema Admins"
                     Write-Log "  [+] Added to Schema Admins: $userName" -Level SUCCESS
@@ -154,15 +166,27 @@ function Invoke-ModuleInfrastructureSecurity {
                         New-ADUser -Name $userName -SamAccountName $userName -AccountPassword (ConvertTo-SecureString "P@ssw0rd!$i" -AsPlainText -Force) -Enabled $true -ErrorAction Stop
                         Write-Log "  [+] Created user: $userName" -Level SUCCESS
                         
-                        # Wait for replication
-                        Start-Sleep -Milliseconds 500
+                        # Wait for replication and AD to catch up
+                        Start-Sleep -Seconds 2
                     }
                     else {
                         Write-Log "  [*] User already exists: $userName" -Level INFO
                     }
                     
-                    # Add to Enterprise Admins
-                    $user = Get-ADUser -Identity $userName -ErrorAction Stop
+                    # Verify user exists before adding to group
+                    $user = $null
+                    for ($retry = 0; $retry -lt 5; $retry++) {
+                        $user = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
+                        if ($user) {
+                            break
+                        }
+                        Start-Sleep -Milliseconds 500
+                    }
+                    
+                    if (-not $user) {
+                        throw "User $userName not found after creation"
+                    }
+                    
                     Add-ADGroupMember -Identity $enterpriseAdminsGroup -Members $user -ErrorAction SilentlyContinue
                     Write-LogChange -Object $userName -Attribute "Group Membership" -OldValue "N/A" -NewValue "Enterprise Admins"
                     Write-Log "  [+] Added to Enterprise Admins: $userName" -Level SUCCESS
@@ -190,10 +214,11 @@ function Invoke-ModuleInfrastructureSecurity {
         Write-Log "Modifying dSHeuristics for dangerous settings..." -Level INFO
         
         try {
-            # Get forest configuration naming context
-            $forest = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()
-            $forestConfigNC = $forest.ConfigurationNamingContext
-            $directoryServicePath = "CN=Directory Service,CN=Windows NT,CN=Services,$forestConfigNC"
+            # Build configuration naming context from domain DN
+            # DC=d3,DC=lab -> CN=Configuration,DC=d3,DC=lab
+            $domainDNParts = $domainDN -split ','
+            $configNC = "CN=Configuration," + ($domainDNParts -join ',')
+            $directoryServicePath = "CN=Directory Service,CN=Windows NT,CN=Services,$configNC"
             
             Write-Log "  Directory Service Path: $directoryServicePath" -Level INFO
             
