@@ -36,7 +36,7 @@ function Invoke-ModuleAccountSecurity {
     )
     $domainDN = $Environment.Domain.DistinguishedName
     $domainNetBIOS = $Environment.Domain.NetBIOSName
-    $rwdcFQDN = $Environment.DomainController.HostName
+    $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $Environment.Domain.PDCEmulator }
     $testOU = "OU=TEST,$domainDN"
     
     $successCount = 0
@@ -124,7 +124,7 @@ function Invoke-ModuleAccountSecurity {
         $disabledCount = 0
         
         for ($i = 24; $i -le 26; $i++) {
-            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
             if ($badActor) {
                 try {
                     if ($i -eq 24 -and $accountOpsGroup) {
@@ -159,7 +159,7 @@ function Invoke-ModuleAccountSecurity {
         $ephemeralCount = 0
         
         for ($i = 27; $i -le 29; $i++) {
-            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
             if ($badActor) {
                 try {
                     if ($i -eq 27 -and $accountOpsGroup) {
@@ -199,7 +199,7 @@ function Invoke-ModuleAccountSecurity {
         $i = 29
         
         for ($num = 30; $num -le 81; $num++) {
-            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$num" } -ErrorAction SilentlyContinue
+            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3$num" } -ErrorAction SilentlyContinue
             if ($badActor) {
                 $i++
                 try {
@@ -232,7 +232,7 @@ function Invoke-ModuleAccountSecurity {
     try {
         $adminCountSet = 0
         for ($i = 82; $i -le 83; $i++) {
-            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
             if ($badActor) {
                 try {
                     Set-ADUser -Identity $badActor -Replace @{"adminCount" = 1}
@@ -259,7 +259,7 @@ function Invoke-ModuleAccountSecurity {
         
         if ($domainControllersGroup) {
             for ($i = 84; $i -le 85; $i++) {
-                $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+                $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
                 if ($badActor) {
                     try {
                         Add-ADGroupMember -Identity $domainControllersGroup -Members $badActor -ErrorAction SilentlyContinue
@@ -286,7 +286,7 @@ function Invoke-ModuleAccountSecurity {
         $unreadableCount = 0
         
         for ($i = 86; $i -le 87; $i++) {
-            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+            $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
             if ($badActor) {
                 try {
                     $badActorObj = [ADSI]("LDAP://$rwdcFQDN/$($badActor.DistinguishedName)")
@@ -309,7 +309,7 @@ function Invoke-ModuleAccountSecurity {
         
         if ($preW2KGroup) {
             for ($i = 124; $i -le 126; $i++) {
-                $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+                $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
                 if ($badActor) {
                     try {
                         Add-ADGroupMember -Identity $preW2KGroup -Members $badActor -ErrorAction SilentlyContinue
@@ -377,7 +377,7 @@ function Invoke-ModuleAccountSecurity {
         
         if ($dnsAdminsGroup) {
             for ($i = 90; $i -le 91; $i++) {
-                $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS$i" } -ErrorAction SilentlyContinue
+                $badActor = Get-ADUser -Filter { SamAccountName -eq "BdActrD3i" } -ErrorAction SilentlyContinue
                 if ($badActor) {
                     try {
                         Add-ADGroupMember -Identity $dnsAdminsGroup -Members $badActor -ErrorAction SilentlyContinue

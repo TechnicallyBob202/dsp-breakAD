@@ -43,12 +43,14 @@ function Invoke-ModuleADDelegations {
     $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $Environment.Domain.PDCEmulator }
     
     $forest = Get-ADForest -Current LocalComputer
+    $forestRootDomainFQDN = $forest.RootDomain
     $forestConfigNCDN = $forest.PartitionsContainer.Replace("CN=Partitions,","")
     $forestSchemaNCDN = "CN=Schema," + $forestConfigNCDN
     $forestSchemaFsmoFQDN = $forest.SchemaMaster
     $forestDnmFsmoFQDN = $forest.DomainNamingMaster
     
     $dcContainerDN = "CN=Domain Controllers,$domainDN"
+    $testOU = "OU=TEST,$domainDN"
     $adminSDHolderDN = "CN=AdminSDHolder,CN=System,$domainDN"
     
     $successCount = 0
@@ -108,6 +110,8 @@ function Invoke-ModuleADDelegations {
     Write-Host ""
     
     # Update Display Specifiers
+    # COMMENTED OUT: Display specifiers modification - not in legacy script, schema object access issues
+    <# 
     Write-Host "Modifying display specifiers..." -ForegroundColor Yellow
     try {
         foreach ($lcidCode in @("401", "409", "816")) {
@@ -126,6 +130,7 @@ function Invoke-ModuleADDelegations {
         Write-Host "  [X] Failed to modify display specifiers: $_" -ForegroundColor Red
     }
     Write-Host ""
+    #>
     
     # Update default permissions on User ObjectClass
     Write-Host "Updating default permissions on User ObjectClass..." -ForegroundColor Yellow
@@ -148,6 +153,8 @@ function Invoke-ModuleADDelegations {
     }
     Write-Host ""
     
+    # COMMENTED OUT: DC owner modification - not in legacy script, DC filter returns no results
+    <#
     # Set non-admin as owner of DC computer account
     Write-Host "Setting non-admin as owner of DC computer account..." -ForegroundColor Yellow
     try {
@@ -169,6 +176,7 @@ function Invoke-ModuleADDelegations {
         Write-Host "  [X] Failed to set DC owner: $_" -ForegroundColor Red
     }
     Write-Host ""
+    #>
     
     # Enable built-in Guest account
     Write-Host "Enabling built-in Guest account..." -ForegroundColor Yellow
