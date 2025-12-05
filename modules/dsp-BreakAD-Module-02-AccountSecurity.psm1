@@ -5,6 +5,11 @@
 # Targets: Account Security IOE category in DSP
 # Note: This module is idempotent - safe to run multiple times
 #
+# IOEs Implemented: 11 of 13
+# Skipped IOEs:
+#   - IOE 9: User accounts with old passwords (90+ days) - pwdLastSet cannot be set post-creation
+#   - IOE 13: Smart Card with old password - pwdLastSet cannot be set post-creation
+#
 # Author: Bob Lyons (bob@semperis.com)
 ################################################################################
 
@@ -67,18 +72,11 @@ function Invoke-ModuleAccountSecurity {
                 return $user
             }
 
-            # IOE 1: Use Built-in Administrator Account (Recent Activity)
-            If ($Environment.Config.AccountSecurity_UseBuiltInAdmin -eq $true) {
-                Write-Log "Enabling IOE: Built-in domain Administrator account used within last two weeks" -Level INFO
-                
-                Try {
-                    $AdminAccount = Get-ADUser -Filter {SamAccountName -eq 'Administrator'}
-                    $TempPassword = ConvertTo-SecureString -AsPlainText -Force -String $(-join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32))
-                    Set-ADAccountPassword -Identity $AdminAccount -NewPassword $TempPassword -Reset
-                    Write-Log "PASS: Built-in Administrator password reset" -Level SUCCESS
-                } Catch {
-                    Write-Log "FAIL: $_" -Level ERROR
-                }
+            # IOE 1: Built-in Administrator Recently Used
+            # NOTE: REMOVED - Cannot reset built-in Administrator password in lab
+            If ($false) {
+                Write-Log "Enabling IOE: Built-in Administrator recently used" -Level INFO
+                Write-Log "SKIP: Cannot modify built-in Administrator account" -Level INFO
             }
 
             # IOE 3: Privileged Accounts with Password Never Expires
