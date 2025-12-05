@@ -172,7 +172,7 @@ function Invoke-ModuleAccountSecurity {
         
         if ($config['AccountSecurity_IncludePreAuthDisabled'] -eq 'true') {
             try {
-                Set-ADUser -Identity $user -DoesNotRequirePreAuth $true -ErrorAction Stop
+                Set-ADUser -Identity $user -DoesNotRequirePreauth $true -ErrorAction Stop
                 Write-LogChange -Object $user.Name -Attribute "DoesNotRequirePreAuth" -OldValue "False" -NewValue "True"
                 Write-Log "    [+] Pre-auth disabled (AS-REP roasting vector)" -Level SUCCESS
             }
