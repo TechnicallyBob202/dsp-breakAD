@@ -312,6 +312,20 @@ function Invoke-ModuleGroupPolicySecurity {
             }
 
             Write-Host ""
+            Write-Host "PHASE 6: Forcing Group Policy update..." -ForegroundColor Cyan
+            
+            try {
+                $updateResult = Invoke-Command -ComputerName $dcFQDN -ScriptBlock {
+                    gpupdate /force
+                } -ErrorAction SilentlyContinue
+                
+                Write-Host "  [+] Group Policy update forced on $dcFQDN" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "  [!] Error forcing gpupdate: $_" -ForegroundColor Yellow
+            }
+
+            Write-Host ""
             Write-Host "Module 03 completed" -ForegroundColor Green
             Write-Host ""
             
