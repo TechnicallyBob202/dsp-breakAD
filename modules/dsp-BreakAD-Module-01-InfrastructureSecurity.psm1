@@ -129,16 +129,40 @@ function Invoke-ModuleInfrastructureSecurity {
                     Write-LogChange -Object $userName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
                     Write-Log "    [+] User created: $userName" -Level SUCCESS
                     
-                    # Wait for replication - longer wait to ensure AD replication
-                    Start-Sleep -Seconds 2
+                    # Retry logic for user retrieval with exponential backoff
+                    $maxRetries = 5
+                    $retryCount = 0
+                    $user = $null
                     
-                    # Retrieve the created user - FAIL if not found
-                    $user = Get-ADUser -Identity $userName -ErrorAction Stop
+                    while ($retryCount -lt $maxRetries -and $null -eq $user) {
+                        $retryCount++
+                        $waitTime = [Math]::Pow(2, $retryCount)  # 2, 4, 8, 16, 32 seconds
+                        
+                        Write-Log "    Waiting $waitTime seconds for AD replication (attempt $retryCount/$maxRetries)..." -Level INFO
+                        Start-Sleep -Seconds $waitTime
+                        
+                        try {
+                            $user = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
+                            if ($null -ne $user) {
+                                Write-Log "    [+] User retrieved successfully after $retryCount attempt(s)" -Level SUCCESS
+                            }
+                        }
+                        catch {
+                            Write-Log "    [*] Retrieval attempt $retryCount failed, retrying..." -Level INFO
+                        }
+                    }
+                    
+                    if ($null -eq $user) {
+                        Write-Log "    [!] CRITICAL ERROR: Could not retrieve $userName after $maxRetries attempts" -Level ERROR
+                        Write-Log "        This suggests an AD replication or connectivity issue" -Level ERROR
+                        return $false
+                    }
+                    
                     $schemaAdminUsers += $user
                     $successCount++
                 }
                 catch {
-                    Write-Log "    [!] CRITICAL ERROR: Failed to create or retrieve $userName : $_" -Level ERROR
+                    Write-Log "    [!] CRITICAL ERROR: Failed to create $userName : $_" -Level ERROR
                     Write-Log "        Module stopping due to critical user creation failure" -Level ERROR
                     return $false
                 }
