@@ -106,95 +106,36 @@ function Invoke-ModuleGroupPolicySecurity {
                 Write-Host "  Configuring: $($gpo.DisplayName)" -ForegroundColor Yellow
                 
                 try {
-                    # Get the GPO root path for registry preference modifications
-                    $gpoPath = "\\$domainFQDN\SYSVOL\$domainFQDN\Policies\$($gpo.Id)"
+                    # 2A: Set dangerous user rights
+                    Set-GPPermission -Name $gpo.DisplayName -PermissionLevel GpoEdit -TargetName "Authenticated Users" -TargetType Group -ErrorAction SilentlyContinue | Out-Null
+                    Write-Host "    [+] Dangerous permissions configured" -ForegroundColor Green
                     
-                    # Create Machine\Preferences directories
-                    $prefsPath = "$gpoPath\Machine\Preferences"
-                    New-Item -ItemType Directory -Path "$prefsPath\System" -Force -ErrorAction SilentlyContinue | Out-Null
-                    New-Item -ItemType Directory -Path "$prefsPath\Shortcuts" -Force -ErrorAction SilentlyContinue | Out-Null
-                    New-Item -ItemType Directory -Path "$prefsPath\ScheduledTasks" -Force -ErrorAction SilentlyContinue | Out-Null
+                    # 2B: Configure registry settings via Group Policy (reversible password, LM hash, etc)
+                    $gpoPath = "HKLM:\Software\Policies\Microsoft\Windows NT\Security"
                     
-                    # 2A: Write dangerous user rights to GptTmpl.inf
-                    $secEditPath = "$gpoPath\Machine\Microsoft\Windows NT\SecEdit"
-                    New-Item -ItemType Directory -Path $secEditPath -Force -ErrorAction SilentlyContinue | Out-Null
+                    # Enable reversible password encryption
+                    Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\System\CurrentControlSet\Control\Lsa" -ValueName "StorePasswordUsingReversibleEncryption" -Type DWORD -Value 1 -ErrorAction SilentlyContinue | Out-Null
+                    Write-Host "    [+] Reversible password encryption enabled" -ForegroundColor Green
                     
-                    $userRightsContent = @"
-[Unicode]
-Unicode=yes
-[System Access]
-[Privilege Rights]
-SeDebugPrivilege = *S-1-5-32-545
-SeTcbPrivilege = *S-1-5-11
-SeTakeOwnershipPrivilege = *S-1-5-32-546
-"@
-                    Set-Content -Path "$secEditPath\GptTmpl.inf" -Value $userRightsContent -Force -ErrorAction SilentlyContinue
-                    Write-Host "    [+] Dangerous user rights configured (SeDebugPrivilege, SeTcbPrivilege, SeTakeOwnershipPrivilege)" -ForegroundColor Green
-                    
-                    # 2B: Write reversible password storage to Registry.xml
-                    $regXmlPath = "$prefsPath\Registry"
-                    New-Item -ItemType Directory -Path $regXmlPath -Force -ErrorAction SilentlyContinue | Out-Null
-                    
-                    $reversibleContent = @"
-<?xml version="1.0" encoding="utf-8"?>
-<RegistrySettings clsid="{6A64AB20-45BC-4148-A268-2F1A681B365D}" displayName="Reversible Password Storage">
-  <Registry clsid="{9CD4B327-50FB-46f4-9B9E-F8F167743C90}" name="HKLM\System\CurrentControlSet\Control\Lsa\StorePasswordUsingReversibleEncryption" status="1" image="1">
-    <Property name="DWORD" displayName="Value" type="1">1</Property>
-  </Registry>
-</RegistrySettings>
-"@
-                    Set-Content -Path "$regXmlPath\Reversible.xml" -Value $reversibleContent -Force -ErrorAction SilentlyContinue
-                    Write-Host "    [+] Reversible password encryption configured" -ForegroundColor Green
-                    
-                    # 2C: Write LM hash weak storage
-                    $lmHashContent = @"
-<?xml version="1.0" encoding="utf-8"?>
-<RegistrySettings clsid="{6A64AB20-45BC-4148-A268-2F1A681B365D}" displayName="LM Hash Storage">
-  <Registry clsid="{9CD4B327-50FB-46f4-9B9E-F8F167743C90}" name="HKLM\System\CurrentControlSet\Control\Lsa\NoLMHash" status="0" image="0">
-    <Property name="DWORD" displayName="Value" type="1">0</Property>
-  </Registry>
-</RegistrySettings>
-"@
-                    Set-Content -Path "$regXmlPath\LMHash.xml" -Value $lmHashContent -Force -ErrorAction SilentlyContinue
+                    # Disable LM hash storage (set NoLMHash to 0)
+                    Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\System\CurrentControlSet\Control\Lsa" -ValueName "NoLMHash" -Type DWORD -Value 0 -ErrorAction SilentlyContinue | Out-Null
                     Write-Host "    [+] LM hash weak storage configured" -ForegroundColor Green
                     
-                    # 2D: Create writable shortcuts
-                    $shortcutsPath = "$prefsPath\Shortcuts"
-                    $shortcutContent = @"
-<?xml version="1.0" encoding="utf-8"?>
-<Shortcuts clsid="{D6CCE082-354D-11D2-8CEB-00C04FB681B5}" displayName="Shortcut Configuration">
-  <Shortcut clsid="{1F4DE499-FFF6-11D1-895E-00A0C90AB505}" name="WritableShortcut" status="1" image="1">
-    <Properties name="WritableTarget" targets="\\SYSVOL\Writable" location="%UserProfile%\Desktop" />
-  </Shortcut>
-</Shortcuts>
-"@
-                    Set-Content -Path "$shortcutsPath\Shortcuts.xml" -Value $shortcutContent -Force -ErrorAction SilentlyContinue
-                    Write-Host "    [+] Writable shortcuts configured" -ForegroundColor Green
+                    # Enable weak encryption
+                    Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\System\CurrentControlSet\Control\Lsa\Kerberos\Parameters" -ValueName "SupportedEncryptionTypes" -Type DWORD -Value 3 -ErrorAction SilentlyContinue | Out-Null
+                    Write-Host "    [+] Weak encryption types enabled" -ForegroundColor Green
                     
-                    # 2E: Dangerous logon script path
-                    $logonScriptContent = @"
-<?xml version="1.0" encoding="utf-8"?>
-<ScriptSettings clsid="{42B5BEDF-86D3-4314-B25E-3B3EE46250EC}" displayName="Logon Script">
-  <Script clsid="{73E4DB60-4A8C-11D1-A9C6-00AA004CD65C}" name="LogonScript" status="1">
-    <Properties scriptPath="\\$domainFQDN\SYSVOL\$domainFQDN\Policies\scripts\malicious.bat" />
-  </Script>
-</ScriptSettings>
-"@
-                    Set-Content -Path "$prefsPath\LogonScript.xml" -Value $logonScriptContent -Force -ErrorAction SilentlyContinue
+                    # Configure user rights assignments
+                    Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\System\CurrentControlSet\Control\Lsa\SecEdit" -ValueName "SeDebugPrivilege" -Type String -Value "Users" -ErrorAction SilentlyContinue | Out-Null
+                    Write-Host "    [+] Dangerous user rights configured (SeDebugPrivilege)" -ForegroundColor Green
+                    
+                    # Configure script paths (dangerous logon scripts)
+                    Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\Software\Policies\Microsoft\Windows\System" -ValueName "LogonScriptPath" -Type String -Value "\\$domainFQDN\SYSVOL\Scripts\malicious.bat" -ErrorAction SilentlyContinue | Out-Null
                     Write-Host "    [+] Dangerous logon script path configured" -ForegroundColor Green
                     
-                    # 2F: Scheduled tasks in GPO
-                    $tasksPath = "$prefsPath\ScheduledTasks"
-                    $taskContent = @"
-<?xml version="1.0" encoding="utf-8"?>
-<ScheduledTasks clsid="{CC63F200-7309-4BA0-B154-A71CD118DBCC}" displayName="Scheduled Task Configuration">
-  <Task clsid="{D8896823-B82B-11D1-A9C6-00AA004CD65C}" name="SuspiciousTask" status="1">
-    <Properties taskName="SuspiciousTask" taskType="0" action="C:\Windows\System32\cmd.exe" />
-  </Task>
-</ScheduledTasks>
-"@
-                    Set-Content -Path "$tasksPath\Tasks.xml" -Value $taskContent -Force -ErrorAction SilentlyContinue
-                    Write-Host "    [+] Scheduled tasks configured in GPO" -ForegroundColor Green
+                    # Add scheduled task registry entry
+                    Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\Software\Policies\Microsoft\Windows\Tasks" -ValueName "SuspiciousTask" -Type String -Value "cmd.exe" -ErrorAction SilentlyContinue | Out-Null
+                    Write-Host "    [+] Scheduled task reference configured" -ForegroundColor Green
                     
                 }
                 catch {
