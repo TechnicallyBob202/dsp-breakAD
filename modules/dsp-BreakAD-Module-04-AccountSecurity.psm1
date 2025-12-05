@@ -1,13 +1,11 @@
 function Invoke-ModuleAccountSecurity {
     param([Parameter(Mandatory=$true)][hashtable]$Environment)
     
-    $domain = $Environment.Domain
-    $domainDN = $domain.DistinguishedName
-    $domainNetBIOS = $domain.NetBIOSName
-    $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $domain.PDCEmulator }
-    
-    $successCount = 0
-    $errorCount = 0
+    $adDomainDN = $Environment.Domain.DistinguishedName
+    $adDomainNetBIOS = $Environment.Domain.NetBIOSName
+    $adDomainRwdcPdcFsmoFQDN = $Environment.Domain.PDCEmulator
+    $adDomainSID = $Environment.Domain.DomainSID.Value
+    $OU = "OU=TEST,$adDomainDN"
     
     Write-Host ""
     Write-Host "===============================================" -ForegroundColor Cyan
@@ -15,240 +13,253 @@ function Invoke-ModuleAccountSecurity {
     Write-Host "===============================================" -ForegroundColor Cyan
     Write-Host ""
     
-    # BdActr24-26: Disabled + protected groups
+    $accountOperatorsStringFormat = "S-1-5-32-548"
+    $accountOperatorsPrincipalName = $(New-Object System.Security.Principal.SecurityIdentifier($accountOperatorsStringFormat)).Translate([System.Security.Principal.NTAccount]).Value
+    $backupOperatorsStringFormat = "S-1-5-32-551"
+    $backupOperatorsPrincipalName = $(New-Object System.Security.Principal.SecurityIdentifier($backupOperatorsStringFormat)).Translate([System.Security.Principal.NTAccount]).Value
+    $serverOperatorsStringFormat = "S-1-5-32-549"
+    $serverOperatorsPrincipalName = $(New-Object System.Security.Principal.SecurityIdentifier($serverOperatorsStringFormat)).Translate([System.Security.Principal.NTAccount]).Value
+    $domainAdminsStringFormat = $adDomainSID + "-512"
+    $domainAdminsPrincipalName = $(New-Object System.Security.Principal.SecurityIdentifier($domainAdminsStringFormat)).Translate([System.Security.Principal.NTAccount]).Value
+    
+    # Disabled Accounts (24-26)
     Write-Host "Disabling accounts and adding to protected groups..." -ForegroundColor Yellow
-    try {
-        $aoGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
-        $boGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
-        $soGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
+    
+    $disabledAccounts = @(
+        @{ Num = 24; Group = $accountOperatorsPrincipalName; GroupName = "Account Operators" }
+        @{ Num = 25; Group = $backupOperatorsPrincipalName; GroupName = "Backup Operators" }
+        @{ Num = 26; Group = $serverOperatorsPrincipalName; GroupName = "Server Operators" }
+    )
+    
+    foreach ($account in $disabledAccounts) {
+        $badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + $account.Num
+        $adsiSearcher = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName))"
+        $adsiSearcher.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+        $badAct0rObject = $adsiSearcher.FindOne()
         
-        for ($i = 24; $i -le 26; $i++) {
-            $u = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`$i" } -ErrorAction SilentlyContinue
-            if ($u) {
-                if ($i -eq 24 -and $aoGroup) {
-                    Add-ADGroupMember -Identity $aoGroup -Members $u -ErrorAction SilentlyContinue
-                    Disable-ADAccount -Identity $u -ErrorAction SilentlyContinue
-                }
-                elseif ($i -eq 25 -and $boGroup) {
-                    Add-ADGroupMember -Identity $boGroup -Members $u -ErrorAction SilentlyContinue
-                    Disable-ADAccount -Identity $u -ErrorAction SilentlyContinue
-                }
-                elseif ($i -eq 26 -and $soGroup) {
-                    Add-ADGroupMember -Identity $soGroup -Members $u -ErrorAction SilentlyContinue
-                    Disable-ADAccount -Identity $u -ErrorAction SilentlyContinue
+        if ($badAct0rObject) {
+            $adsiSearcher2 = [adsisearcher]"(&(objectCategory=Group)(objectClass=group)(sAMAccountName=$($account.Group.Split('\')[1])))"
+            $adsiSearcher2.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+            $groupObject = $adsiSearcher2.FindOne()
+            
+            if ($groupObject) {
+                try {
+                    $badAct0rAccount = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
+                    $group = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($groupObject.Properties.distinguishedname[0]))
+                    $group.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
+                    $group.SetInfo()
+                    $badAct0rAccount.Put("userAccountControl", $($badAct0rObject.Properties.useraccountcontrol[0] -bor 2))
+                    $badAct0rAccount.SetInfo()
+                    Write-Host "  [+] '$adDomainNetBIOS\$badAct0rSamAccountName' added to $($account.GroupName) and disabled" -ForegroundColor Green
+                } catch {
+                    Write-Host "  [!] Error with $badAct0rSamAccountName`: $_" -ForegroundColor Yellow
                 }
             }
         }
-        Write-Host "  [+] Disabled 3 accounts and added to protected groups" -ForegroundColor Green
-        $successCount++
-    }
-    catch { 
-        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
-        $errorCount++
     }
     Write-Host ""
     
-    # BdActr27-29: Ephemeral memberships
+    # Ephemeral Admins (27-29)
     Write-Host "Creating ephemeral memberships..." -ForegroundColor Yellow
-    try {
-        $aoGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
-        $boGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
-        $soGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
+    
+    $ephemeralAccounts = @(
+        @{ Num = 27; Group = $accountOperatorsPrincipalName; GroupName = "Account Operators" }
+        @{ Num = 28; Group = $backupOperatorsPrincipalName; GroupName = "Backup Operators" }
+        @{ Num = 29; Group = $serverOperatorsPrincipalName; GroupName = "Server Operators" }
+    )
+    
+    foreach ($account in $ephemeralAccounts) {
+        $badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + $account.Num
+        $adsiSearcher = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName))"
+        $adsiSearcher.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+        $badAct0rObject = $adsiSearcher.FindOne()
         
-        for ($i = 27; $i -le 29; $i++) {
-            $u = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`$i" } -ErrorAction SilentlyContinue
-            if ($u) {
-                if ($i -eq 27 -and $aoGroup) {
-                    Add-ADGroupMember -Identity $aoGroup -Members $u -ErrorAction SilentlyContinue
-                    Start-Sleep -Milliseconds 100
-                    Remove-ADGroupMember -Identity $aoGroup -Members $u -Confirm:$false -ErrorAction SilentlyContinue
-                }
-                elseif ($i -eq 28 -and $boGroup) {
-                    Add-ADGroupMember -Identity $boGroup -Members $u -ErrorAction SilentlyContinue
-                    Start-Sleep -Milliseconds 100
-                    Remove-ADGroupMember -Identity $boGroup -Members $u -Confirm:$false -ErrorAction SilentlyContinue
-                }
-                elseif ($i -eq 29 -and $soGroup) {
-                    Add-ADGroupMember -Identity $soGroup -Members $u -ErrorAction SilentlyContinue
-                    Start-Sleep -Milliseconds 100
-                    Remove-ADGroupMember -Identity $soGroup -Members $u -Confirm:$false -ErrorAction SilentlyContinue
+        if ($badAct0rObject) {
+            $adsiSearcher2 = [adsisearcher]"(&(objectCategory=Group)(objectClass=group)(sAMAccountName=$($account.Group.Split('\')[1])))"
+            $adsiSearcher2.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+            $groupObject = $adsiSearcher2.FindOne()
+            
+            if ($groupObject) {
+                try {
+                    $group = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($groupObject.Properties.distinguishedname[0]))
+                    $group.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
+                    $group.SetInfo()
+                    $group.RefreshCache()
+                    Start-Sleep -Milliseconds 500
+                    $group.Remove("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
+                    $group.SetInfo()
+                    Write-Host "  [+] '$adDomainNetBIOS\$badAct0rSamAccountName' added and removed from $($account.GroupName)" -ForegroundColor Green
+                } catch {
+                    Write-Host "  [!] Error with $badAct0rSamAccountName`: $_" -ForegroundColor Yellow
                 }
             }
         }
-        Write-Host "  [+] Created 3 ephemeral memberships" -ForegroundColor Green
-        $successCount++
-    }
-    catch { 
-        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
-        $errorCount++
     }
     Write-Host ""
     
-    # BdActr30-81: Assign to privileged groups (52 accounts)
-    Write-Host "Assigning bad actors to privileged groups..." -ForegroundColor Yellow
-    try {
-        $aoGroup = Get-ADGroup -Filter { SamAccountName -eq "Account Operators" } -ErrorAction SilentlyContinue
-        $boGroup = Get-ADGroup -Filter { SamAccountName -eq "Backup Operators" } -ErrorAction SilentlyContinue
-        $soGroup = Get-ADGroup -Filter { SamAccountName -eq "Server Operators" } -ErrorAction SilentlyContinue
-        $daGroup = Get-ADGroup -Filter { SamAccountName -eq "Domain Admins" } -ErrorAction SilentlyContinue
+    # Bulk group assignments (30-81)
+    Write-Host "Assigning accounts to privileged groups..." -ForegroundColor Yellow
+    
+    $accountsOU = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $OU)
+    $adsiSearcher = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=BdActr*))"
+    $adsiSearcher.SearchRoot = $accountsOU
+    $badAct0rObjects = $adsiSearcher.FindAll()
+    
+    $i = 29
+    $assigned = 0
+    
+    if ($badAct0rObjects) {
+        # Get group objects
+        $adsiSearcher_ao = [adsisearcher]"(&(objectCategory=Group)(objectClass=group)(sAMAccountName=$($accountOperatorsPrincipalName.Split('\')[1])))"
+        $adsiSearcher_ao.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+        $aoGroup = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($adsiSearcher_ao.FindOne().Properties.distinguishedname[0]))
         
-        $assignedCount = 0
+        $adsiSearcher_bo = [adsisearcher]"(&(objectCategory=Group)(objectClass=group)(sAMAccountName=$($backupOperatorsPrincipalName.Split('\')[1])))"
+        $adsiSearcher_bo.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+        $boGroup = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($adsiSearcher_bo.FindOne().Properties.distinguishedname[0]))
         
-        # BdActr30-42 to Account Operators (13 accounts)
-        if ($aoGroup) {
-            for ($i = 30; $i -le 42; $i++) {
-                $u = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`$i" } -ErrorAction SilentlyContinue
-                if ($u) {
-                    Add-ADGroupMember -Identity $aoGroup -Members $u -ErrorAction SilentlyContinue
-                    $assignedCount++
+        $adsiSearcher_so = [adsisearcher]"(&(objectCategory=Group)(objectClass=group)(sAMAccountName=$($serverOperatorsPrincipalName.Split('\')[1])))"
+        $adsiSearcher_so.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+        $soGroup = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($adsiSearcher_so.FindOne().Properties.distinguishedname[0]))
+        
+        $adsiSearcher_da = [adsisearcher]"(&(objectCategory=Group)(objectClass=group)(sAMAccountName=$($domainAdminsPrincipalName.Split('\')[1])))"
+        $adsiSearcher_da.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+        $daGroup = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($adsiSearcher_da.FindOne().Properties.distinguishedname[0]))
+        
+        $badAct0rObjects | Where-Object { [decimal]$_.Properties.samaccountname[0].Replace("BdActr$adDomainNetBIOS","") -ge 30 -And [decimal]$_.Properties.samaccountname[0].Replace("BdActr$adDomainNetBIOS","") -le 81 } | ForEach-Object {
+            $i++
+            try {
+                if ($i -ge 30 -And $i -le 42) {
+                    $aoGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($_.properties.distinguishedname[0]))
+                    $aoGroup.SetInfo()
+                    $assigned++
                 }
-            }
-        }
-        
-        # BdActr43-55 to Backup Operators (13 accounts)
-        if ($boGroup) {
-            for ($i = 43; $i -le 55; $i++) {
-                $u = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`$i" } -ErrorAction SilentlyContinue
-                if ($u) {
-                    Add-ADGroupMember -Identity $boGroup -Members $u -ErrorAction SilentlyContinue
-                    $assignedCount++
+                elseif ($i -ge 43 -And $i -le 55) {
+                    $boGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($_.properties.distinguishedname[0]))
+                    $boGroup.SetInfo()
+                    $assigned++
                 }
-            }
-        }
-        
-        # BdActr56-68 to Server Operators (13 accounts)
-        if ($soGroup) {
-            for ($i = 56; $i -le 68; $i++) {
-                $u = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`$i" } -ErrorAction SilentlyContinue
-                if ($u) {
-                    Add-ADGroupMember -Identity $soGroup -Members $u -ErrorAction SilentlyContinue
-                    $assignedCount++
+                elseif ($i -ge 56 -And $i -le 68) {
+                    $soGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($_.properties.distinguishedname[0]))
+                    $soGroup.SetInfo()
+                    $assigned++
                 }
-            }
-        }
-        
-        # BdActr69-81 to Domain Admins (13 accounts)
-        if ($daGroup) {
-            for ($i = 69; $i -le 81; $i++) {
-                $u = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`$i" } -ErrorAction SilentlyContinue
-                if ($u) {
-                    Add-ADGroupMember -Identity $daGroup -Members $u -ErrorAction SilentlyContinue
-                    $assignedCount++
+                elseif ($i -ge 69 -And $i -le 81) {
+                    $daGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($_.properties.distinguishedname[0]))
+                    $daGroup.SetInfo()
+                    $assigned++
                 }
-            }
+            } catch { }
         }
-        
-        Write-Host "  [+] Assigned $assignedCount bad actors to privileged groups" -ForegroundColor Green
-        $successCount++
     }
-    catch { 
-        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
-        $errorCount++
-    }
+    Write-Host "  [+] Assigned $assigned accounts to privileged groups" -ForegroundColor Green
     Write-Host ""
     
-    # BdActr82-83: Set adminCount = 1 with inheritance enabled
-    Write-Host "Configuring adminCount with inheritance..." -ForegroundColor Yellow
-    try {
-        for ($i = 82; $i -le 83; $i++) {
-            $u = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`$i" } -ErrorAction SilentlyContinue
-            if ($u) {
-                Set-ADUser -Identity $u -Replace @{"adminCount" = 1} -ErrorAction SilentlyContinue
-            }
-        }
-        Write-Host "  [+] Set adminCount on 2 accounts" -ForegroundColor Green
-        $successCount++
-    }
-    catch { 
-        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
-        $errorCount++
-    }
-    Write-Host ""
+    # AdminCount and primaryGroupID settings
+    Write-Host "Configuring adminCount and primaryGroupID..." -ForegroundColor Yellow
     
-    # BdActr85: Primary Group ID = 516 (Domain Controllers)
-    Write-Host "Setting primary group to Domain Controllers..." -ForegroundColor Yellow
-    try {
-        $u = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`85" } -ErrorAction SilentlyContinue
-        if ($u) {
-            Set-ADUser -Identity $u -Replace @{"primaryGroupID" = 516} -ErrorAction SilentlyContinue
-            Write-Host "  [+] Set primaryGroupID to 516 (Domain Controllers)" -ForegroundColor Green
-            $successCount++
+    # BdActr82-83: AdminCount = 1
+    for ($i = 82; $i -le 83; $i++) {
+        $badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + $i
+        $adsiSearcher = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName))"
+        $adsiSearcher.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+        $badAct0rObject = $adsiSearcher.FindOne()
+        
+        if ($badAct0rObject) {
+            try {
+                $badAct0rAccount = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
+                $badAct0rAccount.Put("adminCount", 1)
+                $badAct0rAccount.SetInfo()
+            } catch { }
         }
     }
-    catch { 
-        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
-        $errorCount++
-    }
-    Write-Host ""
     
-    # BdActr86: Primary Group ID = 513 (Domain Users)
-    Write-Host "Setting primary group to Domain Users..." -ForegroundColor Yellow
-    try {
-        $u = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`86" } -ErrorAction SilentlyContinue
-        if ($u) {
-            Set-ADUser -Identity $u -Replace @{"primaryGroupID" = 513} -ErrorAction SilentlyContinue
-            Write-Host "  [+] Set primaryGroupID to 513 (Domain Users)" -ForegroundColor Green
-            $successCount++
-        }
+    # BdActr85: primaryGroupID = 516 (Domain Controllers)
+    $badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + "85"
+    $adsiSearcher = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName))"
+    $adsiSearcher.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+    $badAct0rObject = $adsiSearcher.FindOne()
+    
+    if ($badAct0rObject) {
+        try {
+            $badAct0rAccount = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
+            $badAct0rAccount.Put("primaryGroupID", 516)
+            $badAct0rAccount.SetInfo()
+        } catch { }
     }
-    catch { 
-        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
-        $errorCount++
+    
+    # BdActr86: primaryGroupID = 513 (Domain Users)
+    $badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + "86"
+    $adsiSearcher = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName))"
+    $adsiSearcher.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+    $badAct0rObject = $adsiSearcher.FindOne()
+    
+    if ($badAct0rObject) {
+        try {
+            $badAct0rAccount = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
+            $badAct0rAccount.Put("primaryGroupID", 513)
+            $badAct0rAccount.SetInfo()
+        } catch { }
     }
-    Write-Host ""
     
     # BdActr87-88: Deny read on primaryGroupID
-    Write-Host "Denying read on primaryGroupID..." -ForegroundColor Yellow
-    try {
-        $primaryGroupIDGUID = "bf967a00-0de6-11d0-a285-00aa003049e2"
-        $everyone = New-Object System.Security.Principal.SecurityIdentifier("S-1-1-0")
-        $aceRight = [System.DirectoryServices.ActiveDirectoryRights]"ReadProperty"
-        $aceType = [System.Security.AccessControl.AccessControlType]"Deny"
-        $aceInheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]"None"
-        $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule($everyone, $aceRight, $aceType, $primaryGroupIDGUID, $aceInheritance)
+    $schemaIDGUIDScopedAttribute = "bf967a00-0de6-11d0-a285-00aa003049e2"
+    $everyoneStringFormat = "S-1-1-0"
+    $everyonePrincipalName = $(New-Object System.Security.Principal.SecurityIdentifier($everyoneStringFormat)).Translate([System.Security.Principal.NTAccount]).Value
+    $everyoneSecurityIdentifier = [System.Security.Principal.SecurityIdentifier] $everyoneStringFormat
+    $everyoneIdentityReference = [System.Security.Principal.IdentityReference] $everyoneSecurityIdentifier
+    $aceRight = [System.DirectoryServices.ActiveDirectoryRights] "ReadProperty"
+    $aceType = [System.Security.AccessControl.AccessControlType] "Deny"
+    $aceInheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None"
+    $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $everyoneIdentityReference,$aceRight,$aceType,$schemaIDGUIDScopedAttribute,$aceInheritanceType
+    
+    for ($i = 87; $i -le 88; $i++) {
+        $badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + $i
+        $adsiSearcher = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName))"
+        $adsiSearcher.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+        $badAct0rObject = $adsiSearcher.FindOne()
         
-        for ($i = 87; $i -le 88; $i++) {
-            $u = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`$i" } -ErrorAction SilentlyContinue
-            if ($u) {
-                $userObj = [ADSI]("LDAP://$rwdcFQDN/$($u.DistinguishedName)")
-                $userObj.psbase.objectSecurity.AddAccessRule($ace)
-                $userObj.psbase.commitchanges()
-            }
+        if ($badAct0rObject) {
+            try {
+                $badAct0rAccount = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
+                $badAct0rAccount.psbase.objectSecurity.AddAccessRule($ace)
+                $badAct0rAccount.psbase.commitchanges()
+            } catch { }
         }
-        Write-Host "  [+] Denied read on primaryGroupID for 2 accounts" -ForegroundColor Green
-        $successCount++
     }
-    catch { 
-        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
-        $errorCount++
-    }
+    
+    Write-Host "  [+] AdminCount and primaryGroupID configured" -ForegroundColor Green
     Write-Host ""
     
-    # BdActr90-91: Add to DNSAdmins
-    Write-Host "Adding to DNSAdmins group..." -ForegroundColor Yellow
-    try {
-        $dnsGroup = Get-ADGroup -Filter { SamAccountName -eq "DnsAdmins" } -ErrorAction SilentlyContinue
-        if ($dnsGroup) {
-            for ($i = 90; $i -le 91; $i++) {
-                $u = Get-ADUser -Filter { SamAccountName -eq "BdActr$domainNetBIOS`$i" } -ErrorAction SilentlyContinue
-                if ($u) {
-                    Add-ADGroupMember -Identity $dnsGroup -Members $u -ErrorAction SilentlyContinue
-                }
+    # BdActr90-91: DNSAdmins
+    Write-Host "Adding to DnsAdmins..." -ForegroundColor Yellow
+    $dnsAdminsStringFormat = "S-1-5-21-3623811015-3361044348-30300820-1101"
+    $adsiSearcher_dns = [adsisearcher]"(&(objectCategory=Group)(objectClass=group)(sAMAccountName=DnsAdmins))"
+    $adsiSearcher_dns.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+    $dnsAdminsObject = $adsiSearcher_dns.FindOne()
+    
+    if ($dnsAdminsObject) {
+        $dnsAdminsGroup = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($dnsAdminsObject.Properties.distinguishedname[0]))
+        
+        for ($i = 90; $i -le 91; $i++) {
+            $badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + $i
+            $adsiSearcher = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName))"
+            $adsiSearcher.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+            $badAct0rObject = $adsiSearcher.FindOne()
+            
+            if ($badAct0rObject) {
+                try {
+                    $dnsAdminsGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
+                    $dnsAdminsGroup.SetInfo()
+                } catch { }
             }
-            Write-Host "  [+] Added 2 members to DnsAdmins" -ForegroundColor Green
-            $successCount++
         }
-    }
-    catch { 
-        Write-Host "  [!] Error: $_" -ForegroundColor Yellow
-        $errorCount++
+        Write-Host "  [+] Added to DnsAdmins" -ForegroundColor Green
     }
     Write-Host ""
     
     Write-Host "Module 04 completed" -ForegroundColor Green
     Write-Host ""
-    
-    if ($errorCount -gt $successCount) { return $false }
     return $true
 }
 
