@@ -138,33 +138,51 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 3: DISABLE LDAP SIGNING
+    # PHASE 3: DISABLE LDAP SIGNING VIA GPO
     ################################################################################
     
-    Write-Log "PHASE 3: Disable LDAP Signing on Domain Controllers" -Level INFO
+    Write-Log "PHASE 3: Disable LDAP Signing on Domain Controllers via GPO" -Level INFO
     
     if ($config['InfrastructureSecurity_DisableLDAPSigning'] -eq 'true') {
-        Write-Log "  Disabling LDAP Signing via registry..." -Level INFO
+        Write-Log "  Creating/modifying GPO for LDAP Signing..." -Level INFO
         
         try {
-            $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
+            $gpoName = "dsp-breakAD-LDAP-Signing"
+            $dcOU = "OU=Domain Controllers,$($domain.DistinguishedName)"
             
+            # Check if GPO exists
+            $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
+            
+            if (-not $gpo) {
+                Write-Log "    Creating new GPO: $gpoName" -Level INFO
+                $gpo = New-GPO -Name $gpoName -Comment "dsp-breakAD: Disable LDAP Signing" -ErrorAction Stop
+                Write-Log "      [+] GPO created" -Level SUCCESS
+            }
+            else {
+                Write-Log "    [*] GPO already exists" -Level INFO
+            }
+            
+            # Link GPO to Domain Controllers OU
+            $gpLink = Get-GPLink -Target $dcOU -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $gpoName }
+            if (-not $gpLink) {
+                New-GPLink -Name $gpoName -Target $dcOU -ErrorAction Stop | Out-Null
+                Write-Log "      [+] GPO linked to Domain Controllers OU" -Level SUCCESS
+            }
+            
+            # Set registry preference: LDAP Server Integrity = 0 (No signing required)
+            Set-GPPrefRegistryValue -Name $gpoName -Action Update -Key "HKLM\System\CurrentControlSet\Services\NTDS\Parameters" -ValueName "LDAPServerIntegrity" -Value 0 -Type DWORD -ErrorAction Stop | Out-Null
+            Write-Log "      [+] Registry preference set (LDAPServerIntegrity = 0)" -Level SUCCESS
+            
+            # Force GPO refresh on DCs
+            Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
+            $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
             foreach ($dc in $domainControllers) {
-                Write-Log "    Processing DC: $($dc.HostName)" -Level INFO
-                
                 try {
-                    $regPath = "HKLM:\System\CurrentControlSet\Services\NTDS\Parameters"
-                    $regValue = "LDAPServerIntegrity"
-                    
-                    Invoke-Command -ComputerName $dc.HostName -ScriptBlock {
-                        param($path, $name)
-                        Set-ItemProperty -Path $path -Name $name -Value 0 -Force -ErrorAction Stop
-                    } -ArgumentList $regPath, $regValue -ErrorAction Stop
-                    
-                    Write-Log "      [+] LDAP Signing disabled" -Level SUCCESS
+                    Invoke-Command -ComputerName $dc.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
+                    Write-Log "      [+] GPO refresh initiated on $($dc.HostName)" -Level SUCCESS
                 }
                 catch {
-                    Write-Log "      [!] Error: $_" -Level WARNING
+                    Write-Log "      [!] Error refreshing GPO on $($dc.HostName): $_" -Level WARNING
                 }
             }
         }
@@ -179,29 +197,51 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 4: DISABLE SMB SIGNING
+    # PHASE 4: DISABLE SMB SIGNING VIA GPO
     ################################################################################
     
-    Write-Log "PHASE 4: Disable SMB Signing on Domain Controllers" -Level INFO
+    Write-Log "PHASE 4: Disable SMB Signing on Domain Controllers via GPO" -Level INFO
     
     if ($config['InfrastructureSecurity_DisableSMBSigning'] -eq 'true') {
-        Write-Log "  Disabling SMB Signing via registry..." -Level INFO
+        Write-Log "  Creating/modifying GPO for SMB Signing..." -Level INFO
         
         try {
-            $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
+            $gpoName = "dsp-breakAD-SMB-Signing"
+            $dcOU = "OU=Domain Controllers,$($domain.DistinguishedName)"
             
+            # Check if GPO exists
+            $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
+            
+            if (-not $gpo) {
+                Write-Log "    Creating new GPO: $gpoName" -Level INFO
+                $gpo = New-GPO -Name $gpoName -Comment "dsp-breakAD: Disable SMB Signing" -ErrorAction Stop
+                Write-Log "      [+] GPO created" -Level SUCCESS
+            }
+            else {
+                Write-Log "    [*] GPO already exists" -Level INFO
+            }
+            
+            # Link GPO to Domain Controllers OU
+            $gpLink = Get-GPLink -Target $dcOU -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $gpoName }
+            if (-not $gpLink) {
+                New-GPLink -Name $gpoName -Target $dcOU -ErrorAction Stop | Out-Null
+                Write-Log "      [+] GPO linked to Domain Controllers OU" -Level SUCCESS
+            }
+            
+            # Set registry preference: RequireSecuritySignature = 0 (Signing not required)
+            Set-GPPrefRegistryValue -Name $gpoName -Action Update -Key "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" -ValueName "RequireSecuritySignature" -Value 0 -Type DWORD -ErrorAction Stop | Out-Null
+            Write-Log "      [+] Registry preference set (RequireSecuritySignature = 0)" -Level SUCCESS
+            
+            # Force GPO refresh on DCs
+            Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
+            $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
             foreach ($dc in $domainControllers) {
-                Write-Log "    Processing DC: $($dc.HostName)" -Level INFO
-                
                 try {
-                    Invoke-Command -ComputerName $dc.HostName -ScriptBlock {
-                        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "RequireSecuritySignature" -Value 0 -Force -ErrorAction Stop
-                    } -ErrorAction Stop
-                    
-                    Write-Log "      [+] SMB Signing disabled" -Level SUCCESS
+                    Invoke-Command -ComputerName $dc.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
+                    Write-Log "      [+] GPO refresh initiated on $($dc.HostName)" -Level SUCCESS
                 }
                 catch {
-                    Write-Log "      [!] Error: $_" -Level WARNING
+                    Write-Log "      [!] Error refreshing GPO on $($dc.HostName): $_" -Level WARNING
                 }
             }
         }
@@ -216,29 +256,51 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 5: ENABLE SMBv1
+    # PHASE 5: ENABLE SMBv1 VIA GPO
     ################################################################################
     
-    Write-Log "PHASE 5: Enable SMBv1 on Domain Controllers" -Level INFO
+    Write-Log "PHASE 5: Enable SMBv1 on Domain Controllers via GPO" -Level INFO
     
     if ($config['InfrastructureSecurity_EnableSMBv1'] -eq 'true') {
-        Write-Log "  Enabling SMBv1 via registry..." -Level INFO
+        Write-Log "  Creating/modifying GPO for SMBv1..." -Level INFO
         
         try {
-            $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
+            $gpoName = "dsp-breakAD-SMBv1"
+            $dcOU = "OU=Domain Controllers,$($domain.DistinguishedName)"
             
+            # Check if GPO exists
+            $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
+            
+            if (-not $gpo) {
+                Write-Log "    Creating new GPO: $gpoName" -Level INFO
+                $gpo = New-GPO -Name $gpoName -Comment "dsp-breakAD: Enable SMBv1" -ErrorAction Stop
+                Write-Log "      [+] GPO created" -Level SUCCESS
+            }
+            else {
+                Write-Log "    [*] GPO already exists" -Level INFO
+            }
+            
+            # Link GPO to Domain Controllers OU
+            $gpLink = Get-GPLink -Target $dcOU -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $gpoName }
+            if (-not $gpLink) {
+                New-GPLink -Name $gpoName -Target $dcOU -ErrorAction Stop | Out-Null
+                Write-Log "      [+] GPO linked to Domain Controllers OU" -Level SUCCESS
+            }
+            
+            # Set registry preference: SMB1 = 1 (Enable SMBv1)
+            Set-GPPrefRegistryValue -Name $gpoName -Action Update -Key "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" -ValueName "SMB1" -Value 1 -Type DWORD -ErrorAction Stop | Out-Null
+            Write-Log "      [+] Registry preference set (SMB1 = 1)" -Level SUCCESS
+            
+            # Force GPO refresh on DCs
+            Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
+            $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
             foreach ($dc in $domainControllers) {
-                Write-Log "    Processing DC: $($dc.HostName)" -Level INFO
-                
                 try {
-                    Invoke-Command -ComputerName $dc.HostName -ScriptBlock {
-                        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Services\LanmanServer\Parameters" -Name "SMB1" -Value 1 -Force -ErrorAction Stop
-                    } -ErrorAction Stop
-                    
-                    Write-Log "      [+] SMBv1 enabled" -Level SUCCESS
+                    Invoke-Command -ComputerName $dc.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
+                    Write-Log "      [+] GPO refresh initiated on $($dc.HostName)" -Level SUCCESS
                 }
                 catch {
-                    Write-Log "      [!] Error: $_" -Level WARNING
+                    Write-Log "      [!] Error refreshing GPO on $($dc.HostName): $_" -Level WARNING
                 }
             }
         }
