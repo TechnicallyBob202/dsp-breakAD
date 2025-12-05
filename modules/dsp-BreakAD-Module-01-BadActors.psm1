@@ -64,8 +64,8 @@ function Invoke-ModuleBadActors {
         $existing = Get-ADUser -Filter { SamAccountName -eq $samAccountName } -ErrorAction SilentlyContinue
         if ($existing) {
             $skipCount++
-            Write-Host "  [$($index + 1)/201] Skipping (already exists): $samAccountName" -ForegroundColor Yellow
-            return
+            Write-Host "  [$($i + 1)/201] Skipping (already exists): $samAccountName" -ForegroundColor Yellow
+            continue
         }
         
         try {
@@ -77,32 +77,32 @@ function Invoke-ModuleBadActors {
             New-ADUser `
                 -Path $testOU `
                 -Enabled $true `
-                -Name "Bad Act0r $domainFQDN $index" `
+                -Name "Bad Act0r $domainFQDN $i" `
                 -GivenName "Bad" `
-                -Surname "Act0r $domainFQDN $index" `
-                -DisplayName "Bad Act0r $domainFQDN $index" `
+                -Surname "Act0r $domainFQDN $i" `
+                -DisplayName "Bad Act0r $domainFQDN $i" `
                 -SamAccountName $samAccountName `
-                -UserPrincipalName "Bad.Act0r.$domainFQDN.$index@$domainFQDN" `
+                -UserPrincipalName "Bad.Act0r.$domainFQDN.$i@$domainFQDN" `
                 -AccountPassword (ConvertTo-SecureString $password -AsPlainText -Force) `
                 -Server $rwdcFQDN `
                 -ErrorAction Stop
             
             # Apply additional risky configurations based on account number
-            if ($index.ToString().EndsWith("1")) {
+            if ($i.ToString().EndsWith("1")) {
                 # SQL delegation
                 Set-ADUser `
                     -Identity $samAccountName `
-                    -Description "Bad Act0r $domainFQDN $index Password = $password" `
+                    -Description "Bad Act0r $domainFQDN $i Password = $password" `
                     -Add @{ "msDS-AllowedToDelegateTo" = @("MSSQLSvc/$randomNr`:1433", "MSSQLSvc/$randomNr.$domainFQDN`:1433") } `
                     -ServicePrincipalNames @{ Add = "HTTP/$randomNr.111.$domainFQDN", "HTTP/$randomNr.222.$domainFQDN" } `
                     -Server $rwdcFQDN `
                     -ErrorAction Stop
             }
-            elseif ($index.ToString().EndsWith("2")) {
+            elseif ($i.ToString().EndsWith("2")) {
                 # DC delegation
                 Set-ADUser `
                     -Identity $samAccountName `
-                    -Description "Bad Act0r $domainFQDN $index Password = $password" `
+                    -Description "Bad Act0r $domainFQDN $i Password = $password" `
                     -Add @{ "msDS-AllowedToDelegateTo" = @("HOST/$pdcFsmoFQDN", "GC/$pdcFsmoFQDN/$domainFQDN", "ldap/$pdcFsmoFQDN/$domainFQDN", "RestrictedKrbHost/$pdcFsmoFQDN") } `
                     -ServicePrincipalNames @{ Add = "HTTP/$randomNr.111.$domainFQDN", "HTTP/$randomNr.222.$domainFQDN" } `
                     -Server $rwdcFQDN `
@@ -112,7 +112,7 @@ function Invoke-ModuleBadActors {
                 # Basic bad actor
                 Set-ADUser `
                     -Identity $samAccountName `
-                    -Description "Bad Act0r $domainFQDN $index Password = $password" `
+                    -Description "Bad Act0r $domainFQDN $i Password = $password" `
                     -Server $rwdcFQDN `
                     -ErrorAction Stop
             }
@@ -125,10 +125,10 @@ function Invoke-ModuleBadActors {
                 -ErrorAction Stop
             
             $successCount++
-            Write-Host "  [$($index + 1)/201] Created: $samAccountName" -ForegroundColor Green
+            Write-Host "  [$($i + 1)/201] Created: $samAccountName" -ForegroundColor Green
         }
         catch {
-            Write-Host "  [$($index + 1)/201] ERROR creating $samAccountName`: $_" -ForegroundColor Red
+            Write-Host "  [$($i + 1)/201] ERROR creating $samAccountName`: $_" -ForegroundColor Red
         }
     }
     
