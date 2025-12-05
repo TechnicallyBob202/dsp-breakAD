@@ -181,21 +181,6 @@ function Invoke-ModulePreflight {
         Write-Log "    [!] Could not check replication: $_" -Level WARNING
     }
     
-    # Check DC connectivity
-    Write-Log "  Checking DC LDAP connectivity..." -Level INFO
-    try {
-        $dcHostname = $domain.PDCEmulator
-        $dcTest = Test-NetConnection -ComputerName $dcHostname -Port 389 -WarningAction SilentlyContinue -ErrorAction Stop
-        if (-not $dcTest.TcpTestSucceeded) {
-            Write-Log "    [!] Cannot connect to DC on LDAP port" -Level ERROR
-            return $false
-        }
-        Write-Log "    [+] DC connectivity verified" -Level SUCCESS
-    }
-    catch {
-        Write-Log "    [!] Error checking DC connectivity: $_" -Level WARNING
-    }
-    
     Write-Log "" -Level INFO
     
     ################################################################################
