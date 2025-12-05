@@ -49,14 +49,14 @@ function Invoke-ModuleBadActors {
     Write-Host "  MODULE 01: Bad Actor Accounts" -ForegroundColor Cyan
     Write-Host "===============================================" -ForegroundColor Cyan
     Write-Host ""
-    Write-Host "Creating 200 Bad Actor accounts in TEST OU..." -ForegroundColor Cyan
+    Write-Host "Creating 201 Bad Actor accounts in TEST OU..." -ForegroundColor Cyan
     Write-Host "" -ForegroundColor Cyan
     
     $successCount = 0
     $skipCount = 0
     
-    # Create 0-200 (201 total accounts) to cover all module needs
-    # This creates BdActrD30, BdActrD31, ..., BdActrD3200
+    # Create accounts 0-200 (201 total accounts)
+    # BdActrD30, BdActrD31, ..., BdActrD3200
     for ($i = 0; $i -le 200; $i++) {
         $samAccountName = "BdActr$domainNetBIOS$i"
         
