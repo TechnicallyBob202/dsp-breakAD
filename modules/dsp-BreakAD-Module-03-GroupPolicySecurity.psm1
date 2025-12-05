@@ -98,7 +98,7 @@ function Invoke-ModuleGroupPolicySecurity {
             Write-Host ""
 
             # =====================================================================
-            # PHASE 2: Configure GPOs with dangerous settings
+            # PHASE 2: Configure GPOs with dangerous settings using Set-GPRegistryValue
             # =====================================================================
             Write-Host "PHASE 2: Configuring GPO misconfigurations..." -ForegroundColor Cyan
             
@@ -106,36 +106,63 @@ function Invoke-ModuleGroupPolicySecurity {
                 Write-Host "  Configuring: $($gpo.DisplayName)" -ForegroundColor Yellow
                 
                 try {
-                    # 2A: Set dangerous user rights
-                    Set-GPPermission -Name $gpo.DisplayName -PermissionLevel GpoEdit -TargetName "Authenticated Users" -TargetType Group -ErrorAction SilentlyContinue | Out-Null
-                    Write-Host "    [+] Dangerous permissions configured" -ForegroundColor Green
+                    # Set dangerous registry values in the GPO
+                    # These will be stored in the GPO and synced to SYSVOL by Group Policy
                     
-                    # 2B: Configure registry settings via Group Policy (reversible password, LM hash, etc)
-                    $gpoPath = "HKLM:\Software\Policies\Microsoft\Windows NT\Security"
+                    # Reversible password encryption
+                    Set-GPRegistryValue -Name $gpo.DisplayName `
+                        -Key "HKLM\System\CurrentControlSet\Control\Lsa" `
+                        -ValueName "StorePasswordUsingReversibleEncryption" `
+                        -Type DWORD `
+                        -Value 1 -ErrorAction SilentlyContinue | Out-Null
+                    Write-Host "    [+] Reversible password encryption configured" -ForegroundColor Green
                     
-                    # Enable reversible password encryption
-                    Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\System\CurrentControlSet\Control\Lsa" -ValueName "StorePasswordUsingReversibleEncryption" -Type DWORD -Value 1 -ErrorAction SilentlyContinue | Out-Null
-                    Write-Host "    [+] Reversible password encryption enabled" -ForegroundColor Green
-                    
-                    # Disable LM hash storage (set NoLMHash to 0)
-                    Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\System\CurrentControlSet\Control\Lsa" -ValueName "NoLMHash" -Type DWORD -Value 0 -ErrorAction SilentlyContinue | Out-Null
+                    # Weak LM hash storage (NoLMHash=0 = weak hashes allowed)
+                    Set-GPRegistryValue -Name $gpo.DisplayName `
+                        -Key "HKLM\System\CurrentControlSet\Control\Lsa" `
+                        -ValueName "NoLMHash" `
+                        -Type DWORD `
+                        -Value 0 -ErrorAction SilentlyContinue | Out-Null
                     Write-Host "    [+] LM hash weak storage configured" -ForegroundColor Green
                     
-                    # Enable weak encryption
-                    Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\System\CurrentControlSet\Control\Lsa\Kerberos\Parameters" -ValueName "SupportedEncryptionTypes" -Type DWORD -Value 3 -ErrorAction SilentlyContinue | Out-Null
+                    # Weak encryption types
+                    Set-GPRegistryValue -Name $gpo.DisplayName `
+                        -Key "HKLM\System\CurrentControlSet\Control\Lsa\Kerberos\Parameters" `
+                        -ValueName "SupportedEncryptionTypes" `
+                        -Type DWORD `
+                        -Value 3 -ErrorAction SilentlyContinue | Out-Null
                     Write-Host "    [+] Weak encryption types enabled" -ForegroundColor Green
                     
-                    # Configure user rights assignments
-                    Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\System\CurrentControlSet\Control\Lsa\SecEdit" -ValueName "SeDebugPrivilege" -Type String -Value "Users" -ErrorAction SilentlyContinue | Out-Null
-                    Write-Host "    [+] Dangerous user rights configured (SeDebugPrivilege)" -ForegroundColor Green
-                    
-                    # Configure script paths (dangerous logon scripts)
-                    Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\Software\Policies\Microsoft\Windows\System" -ValueName "LogonScriptPath" -Type String -Value "\\$domainFQDN\SYSVOL\Scripts\malicious.bat" -ErrorAction SilentlyContinue | Out-Null
+                    # Dangerous logon script path
+                    Set-GPRegistryValue -Name $gpo.DisplayName `
+                        -Key "HKLM\Software\Policies\Microsoft\Windows\System" `
+                        -ValueName "LogonScriptPath" `
+                        -Type String `
+                        -Value "\\$domainFQDN\SYSVOL\Scripts\malicious.bat" -ErrorAction SilentlyContinue | Out-Null
                     Write-Host "    [+] Dangerous logon script path configured" -ForegroundColor Green
                     
-                    # Add scheduled task registry entry
-                    Set-GPRegistryValue -Name $gpo.DisplayName -Key "HKLM\Software\Policies\Microsoft\Windows\Tasks" -ValueName "SuspiciousTask" -Type String -Value "cmd.exe" -ErrorAction SilentlyContinue | Out-Null
-                    Write-Host "    [+] Scheduled task reference configured" -ForegroundColor Green
+                    # Disable LDAP signing
+                    Set-GPRegistryValue -Name $gpo.DisplayName `
+                        -Key "HKLM\System\CurrentControlSet\Services\NTDS\Parameters" `
+                        -ValueName "LDAPServerIntegrity" `
+                        -Type DWORD `
+                        -Value 0 -ErrorAction SilentlyContinue | Out-Null
+                    Write-Host "    [+] LDAP signing disabled" -ForegroundColor Green
+                    
+                    # Disable SMB signing
+                    Set-GPRegistryValue -Name $gpo.DisplayName `
+                        -Key "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" `
+                        -ValueName "RequireSecuritySignature" `
+                        -Type DWORD `
+                        -Value 0 -ErrorAction SilentlyContinue | Out-Null
+                    Write-Host "    [+] SMB signing disabled" -ForegroundColor Green
+                    
+                    # Grant dangerous permissions (GpoEdit to Authenticated Users)
+                    Set-GPPermission -Name $gpo.DisplayName `
+                        -PermissionLevel GpoEdit `
+                        -TargetName "Authenticated Users" `
+                        -TargetType Group -ErrorAction SilentlyContinue | Out-Null
+                    Write-Host "    [+] Dangerous permissions configured (GpoEdit to Authenticated Users)" -ForegroundColor Green
                     
                 }
                 catch {
