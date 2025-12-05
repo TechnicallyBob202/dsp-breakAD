@@ -68,7 +68,7 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     $AdminAccount = Get-ADUser -Filter {SamAccountName -eq 'Administrator'}
-                    $TempPassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rd1234567890Admin"
+                    $TempPassword = ConvertTo-SecureString -AsPlainText -Force -String "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZAdmin"
                     Set-ADAccountPassword -Identity $AdminAccount -NewPassword $TempPassword -Reset
                     Write-Log "PASS: Built-in Administrator password reset" -Level SUCCESS
                 } Catch {
@@ -82,9 +82,9 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 3; $i++) {
-                        $user = New-BreakAccount -SamAccountName "brkprivpwdexp$i" `
+                        $user = New-BreakAccount -SamAccountName "break-privpwdexp$i" `
                             -DisplayName "Break: Priv Account Pwd Never Expires $i" `
-                            -Password "P@ssw0rd1234567890PrivExp$i" `
+                            -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZPrivExp$i" `
                             -GroupsToAdd @("Domain Admins")
                         
                         Set-ADUser -Identity $user -PasswordNeverExpires $true
@@ -101,9 +101,9 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "brkrevenc$i" `
+                        $user = New-BreakAccount -SamAccountName "break-revenc$i" `
                             -DisplayName "Break: Reversible Encryption $i" `
-                            -Password "P@ssw0rd1234567890RevEnc$i"
+                            -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZRevEnc$i"
                         
                         Set-ADUser -Identity $user -Replace @{'userAccountControl' = (([int]$(Get-ADUser $user -Properties userAccountControl).userAccountControl) -bor 128)}
                         Write-Log "PASS: Created $($user.SamAccountName)" -Level SUCCESS
@@ -119,9 +119,9 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "brkdes$i" `
+                        $user = New-BreakAccount -SamAccountName "break-des$i" `
                             -DisplayName "Break: DES Encryption $i" `
-                            -Password "P@ssw0rd1234567890Des$i"
+                            -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZDes$i"
                         
                         Set-ADUser -Identity $user -Replace @{'msDS-SupportedEncryptionTypes' = 1}
                         Write-Log "PASS: Created $($user.SamAccountName)" -Level SUCCESS
@@ -137,9 +137,9 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "brknopwd$i" `
+                        $user = New-BreakAccount -SamAccountName "break-nopwd$i" `
                             -DisplayName "Break: Password Not Required $i" `
-                            -Password "P@ssw0rd1234567890NoPwd$i" `
+                            -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZNoPwd$i" `
                             -PasswordNotRequired $true
                         
                         Write-Log "PASS: Created $($user.SamAccountName)" -Level SUCCESS
@@ -155,9 +155,9 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "brknopreauth$i" `
+                        $user = New-BreakAccount -SamAccountName "break-preauth$i" `
                             -DisplayName "Break: Pre-Auth Disabled $i" `
-                            -Password "P@ssw0rd1234567890PreAuth$i"
+                            -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZPreAuth$i"
                         
                         Set-ADUser -Identity $user -Replace @{'userAccountControl' = (([int]$(Get-ADUser $user -Properties userAccountControl).userAccountControl) -bor 4194304)}
                         Write-Log "PASS: Created $($user.SamAccountName)" -Level SUCCESS
@@ -173,9 +173,9 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "brkadmincnt$i" `
+                        $user = New-BreakAccount -SamAccountName "break-admincnt$i" `
                             -DisplayName "Break: AdminCount Unprivileged $i" `
-                            -Password "P@ssw0rd1234567890AdminCnt$i"
+                            -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZAdminCnt$i"
                         
                         Set-ADUser -Identity $user -Replace @{'adminCount' = 1}
                         Write-Log "PASS: Created $($user.SamAccountName)" -Level SUCCESS
@@ -191,9 +191,9 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "brkoldpwd$i" `
+                        $user = New-BreakAccount -SamAccountName "break-oldpwd$i" `
                             -DisplayName "Break: Old Password $i" `
-                            -Password "P@ssw0rd1234567890OldPwd$i"
+                            -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZOldPwd$i"
                         
                         $DaysAgo = 95
                         $TargetDate = [datetime]::Now.AddDays(-$DaysAgo)
@@ -217,9 +217,9 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "brkdisabledpriv$i" `
+                        $user = New-BreakAccount -SamAccountName "break-disabledp$i" `
                             -DisplayName "Break: Disabled Privileged User $i" `
-                            -Password "P@ssw0rd1234567890DisPriv$i" `
+                            -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZDisPriv$i" `
                             -Enabled $true `
                             -GroupsToAdd @("Domain Admins")
                         
@@ -237,9 +237,9 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 2; $i++) {
-                        $user = New-BreakAccount -SamAccountName "brknewpriv$i" `
+                        $user = New-BreakAccount -SamAccountName "break-newpriv$i" `
                             -DisplayName "Break: New Privileged Account $i" `
-                            -Password "P@ssw0rd1234567890NewPriv$i" `
+                            -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZNewPriv$i" `
                             -GroupsToAdd @("Domain Admins", "Schema Admins")
                         
                         Write-Log "PASS: Created $($user.SamAccountName)" -Level SUCCESS
@@ -255,9 +255,9 @@ function Invoke-ModuleAccountSecurity {
                 
                 Try {
                     For ($i = 1; $i -le 3; $i++) {
-                        $user = New-BreakAccount -SamAccountName "brknewobj$i" `
+                        $user = New-BreakAccount -SamAccountName "break-newobj$i" `
                             -DisplayName "Break: New Object $i" `
-                            -Password "P@ssw0rd1234567890NewObj$i"
+                            -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZNewObj$i"
                         
                         Write-Log "PASS: Created $($user.SamAccountName)" -Level SUCCESS
                     }
@@ -271,9 +271,9 @@ function Invoke-ModuleAccountSecurity {
                 Write-Log "Enabling IOE: Smart Card with old password" -Level INFO
                 
                 Try {
-                    $user = New-BreakAccount -SamAccountName "brksmartcard1" `
+                    $user = New-BreakAccount -SamAccountName "break-smartcard1" `
                         -DisplayName "Break: Smart Card Old Password" `
-                        -Password "P@ssw0rd1234567890SmartCard1"
+                        -Password "P@ssw0rd!@#$%^P@ssw0rd1234567890*()1234567890XyZSmartCard1"
                     
                     Set-ADUser -Identity $user -SmartcardLogonRequired $true
                     
