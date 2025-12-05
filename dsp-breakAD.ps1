@@ -80,10 +80,61 @@ else {
 # MODULE SELECTION
 ################################################################################
 
-Write-LogSection "PHASE 2: Module Selection"
+################################################################################
+# RUN PREFLIGHT
+################################################################################
+
+Write-LogSection "PHASE 2: Run Preflight"
+
+if (-not $SkipPreflight) {
+    # Load and run preflight module
+    $preflightModule = Join-Path $Script:ModulesPath "dsp-BreakAD-Module-00-Preflight.psm1"
+    if (Test-Path $preflightModule) {
+        try {
+            Import-Module $preflightModule -Force -ErrorAction Stop | Out-Null
+            Write-Log "Loaded: Preflight" -Level SUCCESS
+            
+            # Build initial environment for preflight
+            $Environment = @{
+                Domain = $null
+                DomainController = $null
+                Config = $config
+            }
+            
+            $preflightResult = Invoke-ModulePreflight -Environment $Environment -ErrorAction Stop
+            
+            if ($preflightResult) {
+                Write-Log "Preflight - COMPLETE" -Level SUCCESS
+                # Environment object now has Domain and DomainController populated
+                $domain = $Environment.Domain
+                $primaryDC = $Environment.DomainController
+            }
+            else {
+                Write-Log "ERROR: Preflight validation failed" -Level ERROR
+                exit 1
+            }
+        }
+        catch {
+            Write-Log "ERROR: Preflight execution failed: $_" -Level ERROR
+            exit 1
+        }
+    }
+    else {
+        Write-Log "ERROR: Preflight module not found" -Level ERROR
+        exit 1
+    }
+}
+else {
+    Write-Log "Preflight skipped" -Level INFO
+}
+
+################################################################################
+# MODULE SELECTION
+################################################################################
+
+Write-LogSection "PHASE 3: Module Selection"
 
 $availableModules = @(
-    "Preflight",
     "InfrastructureSecurity",
     "AccountSecurity",
     "ADDelegation",
@@ -110,8 +161,8 @@ elseif ($ModuleNames.Count -gt 0) {
 }
 else {
     Write-Log "Available modules:" -Level INFO
-    for ($i = 1; $i -lt $availableModules.Count; $i++) {
-        Write-Host "  $($i)) $($availableModules[$i])"
+    for ($i = 0; $i -lt $availableModules.Count; $i++) {
+        Write-Host "  $($i+1)) $($availableModules[$i])"
     }
     Write-Host ""
     $selection = Read-Host "Select modules to run (comma-separated numbers, or 0 for all)"
@@ -123,8 +174,8 @@ else {
         $selections = $selection -split "," | ForEach-Object { $_.Trim() }
         foreach ($sel in $selections) {
             if ([int]::TryParse($sel, [ref]$null)) {
-                $index = [int]$sel
-                if ($index -gt 0 -and $index -lt $availableModules.Count) {
+                $index = [int]$sel - 1
+                if ($index -ge 0 -and $index -lt $availableModules.Count) {
                     $selectedModules += $availableModules[$index]
                 }
             }
@@ -132,12 +183,6 @@ else {
     }
     
     Write-Log "Selected modules via interactive prompt: $($selectedModules -join ', ')" -Level INFO
-}
-
-# Ensure Preflight is always run first if not skipped
-if (-not $SkipPreflight -and "Preflight" -notin $selectedModules) {
-    $selectedModules = @("Preflight") + $selectedModules
-    Write-Log "Preflight prepended to module list (will run first)" -Level INFO
 }
 
 if ($selectedModules.Count -eq 0) {
@@ -151,7 +196,7 @@ Write-Log "Selected $($selectedModules.Count) module(s)" -Level SUCCESS
 # LOAD MODULES
 ################################################################################
 
-Write-LogSection "PHASE 3: Load Modules"
+Write-LogSection "PHASE 4: Load Modules"
 
 $loadedModules = @()
 $modulesToLoad = Get-ChildItem -Path $Script:ModulesPath -Filter "dsp-BreakAD-Module-*.psm1" -ErrorAction SilentlyContinue | Sort-Object Name
@@ -161,8 +206,13 @@ if ($modulesToLoad.Count -eq 0) {
 }
 
 foreach ($moduleFile in $modulesToLoad) {
-    # Extract module name from filename: dsp-BreakAD-Module-00-Preflight.psm1 -> Preflight
+    # Extract module name from filename: dsp-BreakAD-Module-01-InfrastructureSecurity.psm1 -> InfrastructureSecurity
     $moduleName = $moduleFile.BaseName -replace "dsp-BreakAD-Module-\d+-", ""
+    
+    # Skip Preflight - already ran
+    if ($moduleName -eq "Preflight") {
+        continue
+    }
     
     if ($moduleName -in $selectedModules) {
         try {
@@ -187,7 +237,7 @@ Write-Log "Successfully loaded $($loadedModules.Count) module(s)" -Level SUCCESS
 # BUILD ENVIRONMENT OBJECT
 ################################################################################
 
-Write-LogSection "PHASE 4: Build Environment"
+Write-LogSection "PHASE 5: Build Environment"
 
 # Initialize variables - will be populated by Preflight module if run
 $domain = $null
@@ -205,7 +255,7 @@ Write-Log "Environment object created" -Level SUCCESS
 # EXECUTE MODULES
 ################################################################################
 
-Write-LogSection "PHASE 5: Execute Modules"
+Write-LogSection "PHASE 6: Execute Modules"
 
 $executedCount = 0
 $failedCount = 0
@@ -240,7 +290,7 @@ foreach ($moduleName in $loadedModules) {
 # EXECUTION SUMMARY
 ################################################################################
 
-Write-LogSection "PHASE 6: Execution Summary"
+Write-LogSection "PHASE 7: Execution Summary"
 
 Write-Log "Modules executed: $executedCount" -Level INFO
 Write-Log "Modules failed: $failedCount" -Level INFO
