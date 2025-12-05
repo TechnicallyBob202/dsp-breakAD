@@ -4,9 +4,9 @@
 ##
 ## Configures infrastructure security misconfigurations
 ## - Enable print spooler on DCs
+## - Create bad users
 ## - Add users to privileged groups (Schema Admins, Enterprise Admins)
 ## - Modify dSHeuristics for dangerous settings
-## - Weaken AdminSDHolder protection
 ##
 ## Author: Bob Lyons (bob@semperis.com)
 ## Version: 1.0.0
@@ -82,71 +82,84 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # SCHEMA ADMINS GROUP
+    # CREATE BAD USERS
     ################################################################################
     
+    $badUsersToCreate = @()
+    $totalBadUsers = 0
+    
+    # Calculate total users needed
     $schemaAdminsCount = [int]$config['InfrastructureSecurity_AddToSchemaAdmins']
-    if ($schemaAdminsCount -gt 0) {
+    $enterpriseAdminsCount = [int]$config['InfrastructureSecurity_AddToEnterpriseAdmins']
+    $totalBadUsers = [Math]::Max($schemaAdminsCount, $enterpriseAdminsCount)
+    
+    if ($totalBadUsers -gt 0) {
+        Write-Log "Creating $totalBadUsers bad user account(s)..." -Level INFO
+        
+        $domainDN = $domain.DistinguishedName
+        
+        for ($i = 1; $i -le $totalBadUsers; $i++) {
+            $userName = "break-InfraUser-$i"
+            $password = ConvertTo-SecureString "InfraP@ss!$i" -AsPlainText -Force
+            
+            Write-Log "  Creating user: $userName" -Level INFO
+            
+            try {
+                # Check if user exists
+                $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
+                if ($existingUser) {
+                    Write-Log "    [*] User already exists: $userName" -Level INFO
+                    $badUsersToCreate += $existingUser
+                }
+                else {
+                    # Create user with backtick line continuations
+                    New-ADUser `
+                        -Name $userName `
+                        -SamAccountName $userName `
+                        -AccountPassword $password `
+                        -Enabled $true `
+                        -ErrorAction Stop
+                    
+                    Write-Log "    [+] Created user: $userName" -Level SUCCESS
+                    
+                    # Wait for replication
+                    Start-Sleep -Seconds 1
+                    
+                    # Get the user object
+                    $user = Get-ADUser -Identity $userName -ErrorAction Stop
+                    $badUsersToCreate += $user
+                    $successCount++
+                }
+            }
+            catch {
+                Write-Log "    [!] Error creating $userName : $_" -Level WARNING
+                $errorCount++
+            }
+        }
+    }
+    
+    Write-Log "" -Level INFO
+    
+    ################################################################################
+    # ADD USERS TO SCHEMA ADMINS
+    ################################################################################
+    
+    if ($schemaAdminsCount -gt 0 -and $badUsersToCreate.Count -gt 0) {
         Write-Log "Adding $schemaAdminsCount users to Schema Admins group..." -Level INFO
         
         try {
             $schemaAdminsGroup = Get-ADGroup -Identity "Schema Admins" -ErrorAction Stop
-            $domainDN = $domain.DistinguishedName
             
-            for ($i = 1; $i -le $schemaAdminsCount; $i++) {
-                $userName = "break-SchemaAdmin-$i"
-                $userDN = "CN=$userName,CN=Users,$domainDN"
-                
-                Write-Log "  Processing: $userName" -Level INFO
-                
+            for ($i = 0; $i -lt $schemaAdminsCount -and $i -lt $badUsersToCreate.Count; $i++) {
+                $user = $badUsersToCreate[$i]
                 try {
-                    # Create user if doesn't exist
-                    $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
-                    if (-not $existingUser) {
-                        Write-Log "    User does not exist, creating..." -Level INFO
-                        try {
-                            New-ADUser `
-                                -Name $userName `
-                                -SamAccountName $userName `
-                                -AccountPassword (ConvertTo-SecureString "P@ssw0rd!$i" -AsPlainText -Force) `
-                                -Enabled $true `
-                                -ErrorAction Stop
-                            Write-Log "  [+] Created user: $userName" -Level SUCCESS
-                        }
-                        catch {
-                            Write-Log "    [!] Failed to create user $userName : $_" -Level WARNING
-                            throw $_
-                        }
-                        
-                        # Wait for replication and AD to catch up
-                        Start-Sleep -Seconds 2
-                    }
-                    else {
-                        Write-Log "  [*] User already exists: $userName" -Level INFO
-                    }
-                    
-                    # Verify user exists before adding to group
-                    $user = $null
-                    for ($retry = 0; $retry -lt 5; $retry++) {
-                        $user = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
-                        if ($user) {
-                            Write-Log "    [*] Found user on attempt $($retry + 1)" -Level INFO
-                            break
-                        }
-                        Start-Sleep -Milliseconds 500
-                    }
-                    
-                    if (-not $user) {
-                        throw "User $userName not found after creation (tried 5 times)"
-                    }
-                    
                     Add-ADGroupMember -Identity $schemaAdminsGroup -Members $user -ErrorAction SilentlyContinue
-                    Write-LogChange -Object $userName -Attribute "Group Membership" -OldValue "N/A" -NewValue "Schema Admins"
-                    Write-Log "  [+] Added to Schema Admins: $userName" -Level SUCCESS
+                    Write-LogChange -Object $user.Name -Attribute "Group Membership" -OldValue "N/A" -NewValue "Schema Admins"
+                    Write-Log "  [+] Added to Schema Admins: $($user.Name)" -Level SUCCESS
                     $successCount++
                 }
                 catch {
-                    Write-Log "  [!] Error with $userName : $_" -Level WARNING
+                    Write-Log "  [!] Error adding $($user.Name) to Schema Admins: $_" -Level WARNING
                     $errorCount++
                 }
             }
@@ -160,60 +173,25 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # ENTERPRISE ADMINS GROUP
+    # ADD USERS TO ENTERPRISE ADMINS
     ################################################################################
     
-    $enterpriseAdminsCount = [int]$config['InfrastructureSecurity_AddToEnterpriseAdmins']
-    if ($enterpriseAdminsCount -gt 0) {
+    if ($enterpriseAdminsCount -gt 0 -and $badUsersToCreate.Count -gt 0) {
         Write-Log "Adding $enterpriseAdminsCount users to Enterprise Admins group..." -Level INFO
         
         try {
             $enterpriseAdminsGroup = Get-ADGroup -Identity "Enterprise Admins" -ErrorAction Stop
-            $domainDN = $domain.DistinguishedName
             
-            for ($i = 1; $i -le $enterpriseAdminsCount; $i++) {
-                $userName = "break-EnterpriseAdmin-$i"
-                
+            for ($i = 0; $i -lt $enterpriseAdminsCount -and $i -lt $badUsersToCreate.Count; $i++) {
+                $user = $badUsersToCreate[$i]
                 try {
-                    # Create user if doesn't exist
-                    $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
-                    if (-not $existingUser) {
-                        New-ADUser `
-                            -Name $userName `
-                            -SamAccountName $userName `
-                            -AccountPassword (ConvertTo-SecureString "P@ssw0rd!$i" -AsPlainText -Force) `
-                            -Enabled $true `
-                            -ErrorAction Stop
-                        Write-Log "  [+] Created user: $userName" -Level SUCCESS
-                        
-                        # Wait for replication and AD to catch up
-                        Start-Sleep -Seconds 2
-                    }
-                    else {
-                        Write-Log "  [*] User already exists: $userName" -Level INFO
-                    }
-                    
-                    # Verify user exists before adding to group
-                    $user = $null
-                    for ($retry = 0; $retry -lt 5; $retry++) {
-                        $user = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
-                        if ($user) {
-                            break
-                        }
-                        Start-Sleep -Milliseconds 500
-                    }
-                    
-                    if (-not $user) {
-                        throw "User $userName not found after creation"
-                    }
-                    
                     Add-ADGroupMember -Identity $enterpriseAdminsGroup -Members $user -ErrorAction SilentlyContinue
-                    Write-LogChange -Object $userName -Attribute "Group Membership" -OldValue "N/A" -NewValue "Enterprise Admins"
-                    Write-Log "  [+] Added to Enterprise Admins: $userName" -Level SUCCESS
+                    Write-LogChange -Object $user.Name -Attribute "Group Membership" -OldValue "N/A" -NewValue "Enterprise Admins"
+                    Write-Log "  [+] Added to Enterprise Admins: $($user.Name)" -Level SUCCESS
                     $successCount++
                 }
                 catch {
-                    Write-Log "  [!] Error with $userName : $_" -Level WARNING
+                    Write-Log "  [!] Error adding $($user.Name) to Enterprise Admins: $_" -Level WARNING
                     $errorCount++
                 }
             }
@@ -236,7 +214,7 @@ function Invoke-ModuleInfrastructureSecurity {
         try {
             # Build configuration naming context from domain DN
             # DC=d3,DC=lab -> CN=Configuration,DC=d3,DC=lab
-            $domainDNParts = $domainDN -split ','
+            $domainDNParts = $domain.DistinguishedName -split ','
             $configNC = "CN=Configuration," + ($domainDNParts -join ',')
             $directoryServicePath = "CN=Directory Service,CN=Windows NT,CN=Services,$configNC"
             
