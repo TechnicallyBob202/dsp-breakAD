@@ -35,7 +35,7 @@ function Invoke-ModuleBadActors {
     $domainFQDN = $Environment.Domain.DNSRoot
     $domainNetBIOS = $Environment.Domain.NetBIOSName
     $pdcFsmoFQDN = $Environment.Domain.PDCEmulator
-    $rwdcFQDN = $Environment.DomainController.HostName
+    $rwdcFQDN = if ($Environment.DomainController.HostName) { $Environment.DomainController.HostName } else { $pdcFsmoFQDN }
     
     # Ensure TEST OU exists
     $testOU = "OU=TEST,$domainDN"
