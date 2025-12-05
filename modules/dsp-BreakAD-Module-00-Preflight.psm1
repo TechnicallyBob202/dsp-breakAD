@@ -50,8 +50,7 @@ function Invoke-ModulePreflight {
     
     # Create root OU
     Write-Log "  Creating/verifying root OU: $rootOUName" -Level INFO
-    $rootOUFilter = "(&(objectClass=organizationalUnit)(name=$rootOUName))"
-    $rootOUExists = Get-ADOrganizationalUnit -Filter $rootOUFilter -ErrorAction SilentlyContinue
+    $rootOUExists = Get-ADOrganizationalUnit -Filter {Name -eq $rootOUName} -ErrorAction SilentlyContinue
     
     if (-not $rootOUExists) {
         try {
@@ -69,8 +68,7 @@ function Invoke-ModulePreflight {
     
     # Create users OU
     Write-Log "  Creating/verifying users OU: $usersOUName" -Level INFO
-    $usersOUFilter = "(&(objectClass=organizationalUnit)(name=$usersOUName))"
-    $usersOUExists = Get-ADOrganizationalUnit -Filter $usersOUFilter -SearchBase $rootOUPath -ErrorAction SilentlyContinue
+    $usersOUExists = Get-ADOrganizationalUnit -Filter {Name -eq $usersOUName} -SearchBase $rootOUPath -ErrorAction SilentlyContinue
     
     if (-not $usersOUExists) {
         try {
@@ -88,8 +86,7 @@ function Invoke-ModulePreflight {
     
     # Create computers OU
     Write-Log "  Creating/verifying computers OU: $computersOUName" -Level INFO
-    $computersOUFilter = "(&(objectClass=organizationalUnit)(name=$computersOUName))"
-    $computersOUExists = Get-ADOrganizationalUnit -Filter $computersOUFilter -SearchBase $rootOUPath -ErrorAction SilentlyContinue
+    $computersOUExists = Get-ADOrganizationalUnit -Filter {Name -eq $computersOUName} -SearchBase $rootOUPath -ErrorAction SilentlyContinue
     
     if (-not $computersOUExists) {
         try {
