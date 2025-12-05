@@ -87,17 +87,28 @@ else {
 Write-LogSection "PHASE 2: Run Preflight"
 
 if (-not $SkipPreflight) {
-    # Load and run preflight module
+    # Load preflight module first
     $preflightModule = Join-Path $Script:ModulesPath "dsp-BreakAD-Module-00-Preflight.psm1"
     if (Test-Path $preflightModule) {
         try {
             Import-Module $preflightModule -Force -ErrorAction Stop | Out-Null
             Write-Log "Loaded: Preflight" -Level SUCCESS
             
-            # Build initial environment for preflight
+            # Get domain and DC first for Environment
+            $domain = Get-ADDomain -ErrorAction Stop
+            $dcs = Get-ADDomainController -Filter * -ErrorAction Stop
+            
+            if ($dcs -is [array]) {
+                $primaryDC = $dcs[0]
+            }
+            else {
+                $primaryDC = $dcs
+            }
+            
+            # Build environment for preflight
             $Environment = @{
-                Domain = $null
-                DomainController = $null
+                Domain = $domain
+                DomainController = $primaryDC
                 Config = $config
             }
             
@@ -105,9 +116,6 @@ if (-not $SkipPreflight) {
             
             if ($preflightResult) {
                 Write-Log "Preflight - COMPLETE" -Level SUCCESS
-                # Environment object now has Domain and DomainController populated
-                $domain = $Environment.Domain
-                $primaryDC = $Environment.DomainController
             }
             else {
                 Write-Log "ERROR: Preflight validation failed" -Level ERROR
@@ -239,17 +247,8 @@ Write-Log "Successfully loaded $($loadedModules.Count) module(s)" -Level SUCCESS
 
 Write-LogSection "PHASE 5: Build Environment"
 
-# Initialize variables - will be populated by Preflight module if run
-$domain = $null
-$primaryDC = $null
-
-$Environment = @{
-    Domain = $domain
-    DomainController = $primaryDC
-    Config = $config
-}
-
-Write-Log "Environment object created" -Level SUCCESS
+# Environment already populated by Preflight - just reuse it
+Write-Log "Environment object ready (populated by Preflight)" -Level SUCCESS
 
 ################################################################################
 # EXECUTE MODULES
