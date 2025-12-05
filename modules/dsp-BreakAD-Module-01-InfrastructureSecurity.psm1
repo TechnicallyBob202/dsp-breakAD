@@ -39,10 +39,63 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 1: VALIDATE CONFIG & SETUP
+    # PHASE 0: CREATE ORGANIZATIONAL UNITS
     ################################################################################
     
-    Write-Log "PHASE 1: Validate Config & Setup" -Level INFO
+    Write-Log "PHASE 0: Create Organizational Units" -Level INFO
+    
+    $domainDN = $domain.DistinguishedName
+    $rootOUName = $config['BreakAD_RootOU']
+    $usersOUName = $config['BreakAD_UsersOU']
+    $computersOUName = $config['BreakAD_ComputersOU']
+    
+    $rootOUPath = "OU=$rootOUName,$domainDN"
+    $usersOUPath = "OU=$usersOUName,OU=$rootOUName,$domainDN"
+    $computersOUPath = "OU=$computersOUName,OU=$rootOUName,$domainDN"
+    
+    Write-Log "  Root OU: $rootOUPath" -Level INFO
+    Write-Log "  Users OU: $usersOUPath" -Level INFO
+    Write-Log "  Computers OU: $computersOUPath" -Level INFO
+    
+    # Create root OU if it doesn't exist
+    $rootOUExists = Get-ADOrganizationalUnit -Filter "Name -eq '$rootOUName'" -ErrorAction SilentlyContinue
+    if ($null -eq $rootOUExists) {
+        Write-Log "  Creating root OU: $rootOUName" -Level INFO
+        New-ADOrganizationalUnit -Name $rootOUName -Path $domainDN -ErrorAction Stop
+        Write-LogChange -Object $rootOUName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
+        Write-Log "    [+] Root OU created" -Level SUCCESS
+    }
+    else {
+        Write-Log "  [*] Root OU already exists" -Level INFO
+    }
+    
+    # Create users OU if it doesn't exist
+    $usersOUExists = Get-ADOrganizationalUnit -Filter "Name -eq '$usersOUName'" -ErrorAction SilentlyContinue | 
+        Where-Object { $_.DistinguishedName -eq $usersOUPath }
+    if ($null -eq $usersOUExists) {
+        Write-Log "  Creating users OU: $usersOUName" -Level INFO
+        New-ADOrganizationalUnit -Name $usersOUName -Path $rootOUPath -ErrorAction Stop
+        Write-LogChange -Object $usersOUName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
+        Write-Log "    [+] Users OU created" -Level SUCCESS
+    }
+    else {
+        Write-Log "  [*] Users OU already exists" -Level INFO
+    }
+    
+    # Create computers OU if it doesn't exist
+    $computersOUExists = Get-ADOrganizationalUnit -Filter "Name -eq '$computersOUName'" -ErrorAction SilentlyContinue | 
+        Where-Object { $_.DistinguishedName -eq $computersOUPath }
+    if ($null -eq $computersOUExists) {
+        Write-Log "  Creating computers OU: $computersOUName" -Level INFO
+        New-ADOrganizationalUnit -Name $computersOUName -Path $rootOUPath -ErrorAction Stop
+        Write-LogChange -Object $computersOUName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
+        Write-Log "    [+] Computers OU created" -Level SUCCESS
+    }
+    else {
+        Write-Log "  [*] Computers OU already exists" -Level INFO
+    }
+    
+    Write-Log "" -Level INFO
     
     $schemaAdminCount = [int]$config['InfrastructureSecurity_SchemaAdminCount']
     $schemaAdminPassword = $config['InfrastructureSecurity_SchemaAdminPassword']
@@ -101,7 +154,7 @@ function Invoke-ModuleInfrastructureSecurity {
             else {
                 Write-Log "    Creating user..." -Level INFO
                 
-                # Create the user
+                # Create the user in the Users OU
                 New-ADUser `
                     -Name $userName `
                     -SamAccountName $userName `
@@ -109,6 +162,7 @@ function Invoke-ModuleInfrastructureSecurity {
                     -Enabled $schemaAdminEnabled `
                     -Description $schemaAdminDescription `
                     -ChangePasswordAtLogon $false `
+                    -Path $usersOUPath `
                     -ErrorAction Stop
                 
                 Write-LogChange -Object $userName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
@@ -192,7 +246,7 @@ function Invoke-ModuleInfrastructureSecurity {
             else {
                 Write-Log "    Creating user..." -Level INFO
                 
-                # Create the user
+                # Create the user in the Users OU
                 New-ADUser `
                     -Name $userName `
                     -SamAccountName $userName `
@@ -200,6 +254,7 @@ function Invoke-ModuleInfrastructureSecurity {
                     -Enabled $enterpriseAdminEnabled `
                     -Description $enterpriseAdminDescription `
                     -ChangePasswordAtLogon $false `
+                    -Path $usersOUPath `
                     -ErrorAction Stop
                 
                 Write-LogChange -Object $userName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
