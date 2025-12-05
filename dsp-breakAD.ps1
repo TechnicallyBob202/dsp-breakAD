@@ -124,8 +124,8 @@ if (-not $SkipPreflight) {
     # Validate can't-break conditions
     Write-Log "Validating can't-break conditions..." -Level INFO
     try {
-        # Check replication health with correct parameter
-        $replHealth = Get-ADReplicationFailure -ErrorAction SilentlyContinue
+        # Check replication health - use Scope parameter
+        $replHealth = Get-ADReplicationFailure -Scope Forest -ErrorAction SilentlyContinue
         if ($replHealth) {
             Write-Log "WARNING: Replication issues detected - proceed with caution" -Level WARNING
         }
