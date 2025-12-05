@@ -132,14 +132,6 @@ if (-not $SkipPreflight) {
         else {
             Write-Log "Replication health verified" -Level SUCCESS
         }
-        
-        # Check DC connectivity
-        $dcTest = Test-NetConnection -ComputerName $primaryDC.HostName -Port 389 -WarningAction SilentlyContinue
-        if (-not $dcTest.TcpTestSucceeded) {
-            Write-Log "ERROR: Cannot connect to DC on LDAP port" -Level ERROR
-            exit 1
-        }
-        Write-Log "DC connectivity verified" -Level SUCCESS
     }
     catch {
         Write-Log "WARNING: Could not fully validate can't-break conditions: $_" -Level WARNING
