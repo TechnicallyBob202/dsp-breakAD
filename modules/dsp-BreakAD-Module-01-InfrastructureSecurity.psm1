@@ -103,6 +103,9 @@ function Invoke-ModuleInfrastructureSecurity {
                     if (-not $existingUser) {
                         New-ADUser -Name $userName -SamAccountName $userName -AccountPassword (ConvertTo-SecureString "P@ssw0rd!$i" -AsPlainText -Force) -Enabled $true -ErrorAction Stop
                         Write-Log "  [+] Created user: $userName" -Level SUCCESS
+                        
+                        # Wait for replication
+                        Start-Sleep -Milliseconds 500
                     }
                     else {
                         Write-Log "  [*] User already exists: $userName" -Level INFO
@@ -150,6 +153,9 @@ function Invoke-ModuleInfrastructureSecurity {
                     if (-not $existingUser) {
                         New-ADUser -Name $userName -SamAccountName $userName -AccountPassword (ConvertTo-SecureString "P@ssw0rd!$i" -AsPlainText -Force) -Enabled $true -ErrorAction Stop
                         Write-Log "  [+] Created user: $userName" -Level SUCCESS
+                        
+                        # Wait for replication
+                        Start-Sleep -Milliseconds 500
                     }
                     else {
                         Write-Log "  [*] User already exists: $userName" -Level INFO
@@ -184,8 +190,12 @@ function Invoke-ModuleInfrastructureSecurity {
         Write-Log "Modifying dSHeuristics for dangerous settings..." -Level INFO
         
         try {
-            $forestConfigNC = $domain.ConfigurationNamingContext
+            # Get forest configuration naming context
+            $forest = [System.DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()
+            $forestConfigNC = $forest.ConfigurationNamingContext
             $directoryServicePath = "CN=Directory Service,CN=Windows NT,CN=Services,$forestConfigNC"
+            
+            Write-Log "  Directory Service Path: $directoryServicePath" -Level INFO
             
             $directoryService = Get-ADObject -Identity $directoryServicePath -ErrorAction Stop
             $currentdSH = $directoryService.dSHeuristics
