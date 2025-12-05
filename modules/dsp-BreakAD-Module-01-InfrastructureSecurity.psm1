@@ -216,6 +216,8 @@ function Invoke-ModuleInfrastructureSecurity {
                 Write-Log "      [DEBUG] userName: '$userName'" -Level INFO
                 Write-Log "      [DEBUG] usersOUPath: '$usersOUPath'" -Level INFO
                 Write-Log "      [DEBUG] enterpriseAdminEnabled: '$enterpriseAdminEnabled'" -Level INFO
+                Write-Log "      [DEBUG] enterpriseAdminPassword length: $($enterpriseAdminPassword.Length)" -Level INFO
+                Write-Log "      [DEBUG] enterpriseAdminDescription: '$enterpriseAdminDescription'" -Level INFO
                 
                 # Create the user
                 New-ADUser `
