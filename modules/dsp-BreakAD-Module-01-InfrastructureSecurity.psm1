@@ -214,20 +214,13 @@ function Invoke-ModuleInfrastructureSecurity {
             else {
                 Write-Log "      Creating..." -Level INFO
                 
-                # DEBUG: Check password object
-                if ($null -eq $enterpriseAdminSecurePassword) {
-                    Write-Log "      [!] ERROR: enterpriseAdminSecurePassword is NULL!" -Level ERROR
-                    return $false
-                }
-                Write-Log "      [DEBUG] Password type: $($enterpriseAdminSecurePassword.GetType().Name)" -Level INFO
-                
                 # Create the user
                 New-ADUser `
                     -Name $userName `
                     -SamAccountName $userName `
                     -AccountPassword $enterpriseAdminSecurePassword `
                     -Enabled $enterpriseAdminEnabled `
-                    -Description "Test Description" `
+                    -Description $enterpriseAdminDescription `
                     -ChangePasswordAtLogon $false `
                     -Path $usersOUPath `
                     -ErrorAction Stop
