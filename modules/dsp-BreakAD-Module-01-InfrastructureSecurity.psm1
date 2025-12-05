@@ -159,7 +159,7 @@ function Invoke-ModuleInfrastructureSecurity {
             $existingUser = Get-ADUser -Filter "SamAccountName -eq '$userName'" -SearchBase $usersOUPath -ErrorAction SilentlyContinue
             
             if ($null -ne $existingUser) {
-                Write-Log "      [*] User already exists" -Level INFO
+                Write-Log "      [+] User already exists" -Level SUCCESS
                 $schemaAdminUsers += $existingUser
             }
             else {
@@ -208,7 +208,7 @@ function Invoke-ModuleInfrastructureSecurity {
             $existingUser = Get-ADUser -Filter "SamAccountName -eq '$userName'" -SearchBase $usersOUPath -ErrorAction SilentlyContinue
             
             if ($null -ne $existingUser) {
-                Write-Log "      [*] User already exists" -Level INFO
+                Write-Log "      [+] User already exists" -Level SUCCESS
                 $enterpriseAdminUsers += $existingUser
             }
             else {
@@ -263,7 +263,7 @@ function Invoke-ModuleInfrastructureSecurity {
                 Where-Object { $_.DistinguishedName -eq $user.DistinguishedName }
             
             if ($null -ne $isMember) {
-                Write-Log "    [*] Already member" -Level INFO
+                Write-Log "    [+] Already member" -Level SUCCESS
             }
             else {
                 Add-ADGroupMember -Identity $schemaAdminsGroup -Members $user -ErrorAction Stop
@@ -295,7 +295,7 @@ function Invoke-ModuleInfrastructureSecurity {
                 Where-Object { $_.DistinguishedName -eq $user.DistinguishedName }
             
             if ($null -ne $isMember) {
-                Write-Log "    [*] Already member" -Level INFO
+                Write-Log "    [+] Already member" -Level SUCCESS
             }
             else {
                 Add-ADGroupMember -Identity $enterpriseAdminsGroup -Members $user -ErrorAction Stop
@@ -377,7 +377,7 @@ function Invoke-ModuleInfrastructureSecurity {
             Write-Log "  [+] dSHeuristics modified to: '$targetdSH'" -Level SUCCESS
         }
         else {
-            Write-Log "  [*] Already at target value" -Level INFO
+            Write-Log "  [+] Already at target value" -Level SUCCESS
         }
     }
     else {
