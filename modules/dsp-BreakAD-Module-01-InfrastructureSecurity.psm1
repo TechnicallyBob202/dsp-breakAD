@@ -144,8 +144,8 @@ function Invoke-ModuleInfrastructureSecurity {
             
             Write-Log "  Processing: $userName" -Level INFO
             
-            # Check if user already exists
-            $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
+            # Check if user already exists (search in Users OU)
+            $existingUser = Get-ADUser -Filter "SamAccountName -eq '$userName'" -SearchBase $usersOUPath -ErrorAction SilentlyContinue
             
             if ($null -ne $existingUser) {
                 Write-Log "    [*] User already exists" -Level INFO
@@ -171,8 +171,8 @@ function Invoke-ModuleInfrastructureSecurity {
                 # Wait for AD to process
                 Start-Sleep -Seconds 3
                 
-                # Retrieve the user
-                $newUser = Get-ADUser -Identity $userName -ErrorAction Stop
+                # Retrieve the user (search in Users OU)
+                $newUser = Get-ADUser -Filter "SamAccountName -eq '$userName'" -SearchBase $usersOUPath -ErrorAction Stop
                 if ($null -eq $newUser) {
                     Write-Log "    [!] ERROR: Could not retrieve user after creation" -Level ERROR
                     return $false
@@ -236,8 +236,8 @@ function Invoke-ModuleInfrastructureSecurity {
             
             Write-Log "  Processing: $userName" -Level INFO
             
-            # Check if user already exists
-            $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
+            # Check if user already exists (search in Users OU)
+            $existingUser = Get-ADUser -Filter "SamAccountName -eq '$userName'" -SearchBase $usersOUPath -ErrorAction SilentlyContinue
             
             if ($null -ne $existingUser) {
                 Write-Log "    [*] User already exists" -Level INFO
@@ -263,8 +263,8 @@ function Invoke-ModuleInfrastructureSecurity {
                 # Wait for AD to process
                 Start-Sleep -Seconds 3
                 
-                # Retrieve the user
-                $newUser = Get-ADUser -Identity $userName -ErrorAction Stop
+                # Retrieve the user (search in Users OU)
+                $newUser = Get-ADUser -Filter "SamAccountName -eq '$userName'" -SearchBase $usersOUPath -ErrorAction Stop
                 if ($null -eq $newUser) {
                     Write-Log "    [!] ERROR: Could not retrieve user after creation" -Level ERROR
                     return $false
