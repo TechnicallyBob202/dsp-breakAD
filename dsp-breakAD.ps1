@@ -15,7 +15,7 @@
 
 param(
     [Parameter(Mandatory=$false)]
-    [ValidateSet('InfrastructureSecurity', 'AccountSecurity', 'ADDelegation', 'KerberosSecurity', 'GroupPolicySecurity')]
+    [ValidateSet('Preflight', 'InfrastructureSecurity', 'AccountSecurity', 'ADDelegation', 'KerberosSecurity', 'GroupPolicySecurity')]
     [string[]]$ModuleNames,
     
     [Parameter(Mandatory=$false)]
@@ -60,91 +60,10 @@ Write-Log "Script Path: $Script:ScriptPath" -Level INFO
 Write-Log "Log File: $logFile" -Level INFO
 
 ################################################################################
-# PREFLIGHT CHECKS
-################################################################################
-
-Write-LogSection "PHASE 1: Preflight Checks"
-
-if (-not $SkipPreflight) {
-    # Check admin rights
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    
-    if (-not $isAdmin) {
-        Write-Log "ERROR: Administrator privileges required" -Level ERROR
-        exit 1
-    }
-    Write-Log "Administrator rights verified" -Level SUCCESS
-    
-    # Check PowerShell version
-    if ($PSVersionTable.PSVersion.Major -lt 5) {
-        Write-Log "ERROR: PowerShell 5.1+ required. Current: $($PSVersionTable.PSVersion)" -Level ERROR
-        exit 1
-    }
-    Write-Log "PowerShell version: $($PSVersionTable.PSVersion)" -Level SUCCESS
-    
-    # Check/import AD module
-    Write-Log "Checking ActiveDirectory module..." -Level INFO
-    try {
-        Import-Module ActiveDirectory -ErrorAction Stop | Out-Null
-        Write-Log "ActiveDirectory module loaded" -Level SUCCESS
-    }
-    catch {
-        Write-Log "ERROR: Failed to load ActiveDirectory module: $_" -Level ERROR
-        exit 1
-    }
-    
-    # Discover domain info
-    Write-Log "Discovering domain and domain controller info..." -Level INFO
-    try {
-        $domain = Get-ADDomain -ErrorAction Stop
-        $dcs = Get-ADDomainController -Filter * -ErrorAction Stop
-        
-        if ($dcs -is [array]) {
-            $primaryDC = $dcs | Where-Object { $_.OperatingSystem -like "*2019*" -or $_.OperatingSystem -like "*2022*" } | Select-Object -First 1
-            if (-not $primaryDC) {
-                $primaryDC = $dcs[0]
-            }
-        }
-        else {
-            $primaryDC = $dcs
-        }
-        
-        Write-Log "Domain: $($domain.Name)" -Level SUCCESS
-        Write-Log "Domain DN: $($domain.DistinguishedName)" -Level SUCCESS
-        Write-Log "Forest: $($domain.Forest)" -Level SUCCESS
-        Write-Log "Primary DC: $($primaryDC.HostName)" -Level SUCCESS
-    }
-    catch {
-        Write-Log "ERROR: Failed to discover domain information: $_" -Level ERROR
-        exit 1
-    }
-    
-    # Validate can't-break conditions
-    Write-Log "Validating can't-break conditions..." -Level INFO
-    try {
-        # Check replication health - use Scope parameter
-        $replHealth = Get-ADReplicationFailure -Scope Forest -ErrorAction SilentlyContinue
-        if ($replHealth) {
-            Write-Log "WARNING: Replication issues detected - proceed with caution" -Level WARNING
-        }
-        else {
-            Write-Log "Replication health verified" -Level SUCCESS
-        }
-    }
-    catch {
-        Write-Log "WARNING: Could not fully validate can't-break conditions: $_" -Level WARNING
-    }
-    
-    Write-Log "Preflight checks complete - ready to apply misconfigurations" -Level SUCCESS
-}
-
-################################################################################
 # LOAD CONFIGURATION
 ################################################################################
 
-Write-LogSection "PHASE 2: Load Configuration"
+Write-LogSection "PHASE 1: Load Configuration"
 
 $config = @{}
 if (Test-Path $Script:ConfigPath) {
@@ -161,9 +80,10 @@ else {
 # MODULE SELECTION
 ################################################################################
 
-Write-LogSection "PHASE 3: Module Selection"
+Write-LogSection "PHASE 2: Module Selection"
 
 $availableModules = @(
+    "Preflight",
     "InfrastructureSecurity",
     "AccountSecurity",
     "ADDelegation",
@@ -175,53 +95,43 @@ $selectedModules = @()
 
 if ($All) {
     $selectedModules = $availableModules
-    Write-Log "All modules selected via -All parameter" -Level INFO
+    Write-Log "Running all modules" -Level INFO
 }
-elseif ($ModuleNames) {
-    $selectedModules = $ModuleNames
-    Write-Log "Modules selected via parameter: $($ModuleNames -join ', ')" -Level INFO
+elseif ($ModuleNames.Count -gt 0) {
+    foreach ($moduleName in $ModuleNames) {
+        if ($moduleName -in $availableModules) {
+            $selectedModules += $moduleName
+        }
+        else {
+            Write-Log "WARNING: Unknown module: $moduleName" -Level WARNING
+        }
+    }
+    Write-Log "Selected modules: $($selectedModules -join ', ')" -Level INFO
 }
 else {
-    # Interactive prompt
-    Write-Host ""
-    Write-Host "Available modules:" -ForegroundColor Cyan
-    Write-Host "  1) InfrastructureSecurity - Print spooler, schema admins, dSHeuristics" -ForegroundColor White
-    Write-Host "  2) AccountSecurity - Bad user accounts, weak policies" -ForegroundColor White
-    Write-Host "  3) ADDelegation - Unconstrained/constrained delegation abuse" -ForegroundColor White
-    Write-Host "  4) KerberosSecurity - Weak encryption, pre-auth bypass" -ForegroundColor White
-    Write-Host "  5) GroupPolicySecurity - Weaken GPO permissions and settings" -ForegroundColor White
-    Write-Host "  6) All - Run all modules" -ForegroundColor White
-    Write-Host "  0) Quit - Exit without running modules" -ForegroundColor Yellow
-    Write-Host ""
-    
-    $choice = Read-Host "Select modules (comma-separated numbers, or 'all', or '0' to quit)"
-    
-    if ($choice -eq "0") {
-        Write-Log "User selected quit option" -Level INFO
-        Close-Logging
-        exit 0
+    Write-Log "Available modules:" -Level INFO
+    for ($i = 0; $i -lt $availableModules.Count; $i++) {
+        Write-Host "  $($i+1)) $($availableModules[$i])"
     }
-    elseif ($choice -eq "all") {
+    Write-Host ""
+    $selection = Read-Host "Select modules to run (comma-separated numbers, or 0 for all)"
+    
+    if ($selection -eq "0") {
         $selectedModules = $availableModules
     }
     else {
-        $choices = $choice -split "," | ForEach-Object { $_.Trim() }
-        $moduleMap = @{
-            "1" = "InfrastructureSecurity"
-            "2" = "AccountSecurity"
-            "3" = "ADDelegation"
-            "4" = "KerberosSecurity"
-            "5" = "GroupPolicySecurity"
-        }
-        
-        foreach ($c in $choices) {
-            if ($moduleMap.ContainsKey($c)) {
-                $selectedModules += $moduleMap[$c]
+        $selections = $selection -split "," | ForEach-Object { $_.Trim() }
+        foreach ($sel in $selections) {
+            if ([int]::TryParse($sel, [ref]$null)) {
+                $index = [int]$sel - 1
+                if ($index -ge 0 -and $index -lt $availableModules.Count) {
+                    $selectedModules += $availableModules[$index]
+                }
             }
         }
     }
     
-    Write-Log "Modules selected via interactive prompt: $($selectedModules -join ', ')" -Level INFO
+    Write-Log "Selected modules via interactive prompt: $($selectedModules -join ', ')" -Level INFO
 }
 
 if ($selectedModules.Count -eq 0) {
@@ -235,7 +145,7 @@ Write-Log "Selected $($selectedModules.Count) module(s)" -Level SUCCESS
 # LOAD MODULES
 ################################################################################
 
-Write-LogSection "PHASE 4: Load Modules"
+Write-LogSection "PHASE 3: Load Modules"
 
 $loadedModules = @()
 $modulesToLoad = Get-ChildItem -Path $Script:ModulesPath -Filter "dsp-BreakAD-Module-*.psm1" -ErrorAction SilentlyContinue | Sort-Object Name
@@ -245,6 +155,7 @@ if ($modulesToLoad.Count -eq 0) {
 }
 
 foreach ($moduleFile in $modulesToLoad) {
+    # Extract module name from filename: dsp-BreakAD-Module-00-Preflight.psm1 -> Preflight
     $moduleName = $moduleFile.BaseName -replace "dsp-BreakAD-Module-\d+-", ""
     
     if ($moduleName -in $selectedModules) {
@@ -261,7 +172,6 @@ foreach ($moduleFile in $modulesToLoad) {
 
 if ($loadedModules.Count -eq 0) {
     Write-Log "ERROR: No modules loaded successfully" -Level ERROR
-    Close-Logging
     exit 1
 }
 
@@ -271,11 +181,19 @@ Write-Log "Successfully loaded $($loadedModules.Count) module(s)" -Level SUCCESS
 # BUILD ENVIRONMENT OBJECT
 ################################################################################
 
+Write-LogSection "PHASE 4: Build Environment"
+
+# Initialize variables - will be populated by Preflight module if run
+$domain = $null
+$primaryDC = $null
+
 $Environment = @{
     Domain = $domain
     DomainController = $primaryDC
     Config = $config
 }
+
+Write-Log "Environment object created" -Level SUCCESS
 
 ################################################################################
 # EXECUTE MODULES
@@ -287,52 +205,49 @@ $executedCount = 0
 $failedCount = 0
 
 foreach ($moduleName in $loadedModules) {
-    Write-LogSection "Executing: $moduleName"
+    Write-Log "" -Level INFO
+    Write-Log "Executing: $moduleName" -Level INFO
+    Write-Log "" -Level INFO
     
-    # Build function name
-    $functionName = "Invoke-Module$moduleName"
-    
-    if (Get-Command -Name $functionName -ErrorAction SilentlyContinue) {
-        try {
-            Write-Log "Starting $functionName..." -Level INFO
-            $result = & $functionName -Environment $Environment
-            
-            if ($result -eq $false) {
-                Write-Log "WARNING: $functionName completed with errors" -Level WARNING
-                $failedCount++
-            }
-            else {
-                Write-Log "$functionName completed successfully" -Level SUCCESS
-                $executedCount++
-            }
+    try {
+        # Convert module name to function name: Preflight -> Invoke-ModulePreflight
+        $functionName = "Invoke-Module$(($moduleName -replace '\s+', '') -replace '-', '')"
+        
+        # Try to call the function
+        if (Get-Command $functionName -ErrorAction SilentlyContinue) {
+            & $functionName -Environment $Environment -ErrorAction Stop
+            Write-Log "$moduleName - COMPLETE" -Level SUCCESS
+            $executedCount++
         }
-        catch {
-            Write-Log "ERROR in $functionName : $_" -Level ERROR
+        else {
+            Write-Log "ERROR: Function $functionName not found" -Level ERROR
             $failedCount++
         }
     }
-    else {
-        Write-Log "ERROR: Function $functionName not found" -Level ERROR
+    catch {
+        Write-Log "ERROR executing $moduleName : $_" -Level ERROR
         $failedCount++
     }
 }
 
 ################################################################################
-# SUMMARY
+# EXECUTION SUMMARY
 ################################################################################
 
 Write-LogSection "PHASE 6: Execution Summary"
 
-Write-Log "Modules Executed: $executedCount" -Level SUCCESS
+Write-Log "Modules executed: $executedCount" -Level INFO
+Write-Log "Modules failed: $failedCount" -Level INFO
+
 if ($failedCount -gt 0) {
-    Write-Log "Modules with Errors: $failedCount" -Level WARNING
+    Write-Log "WARNING: Some modules failed to execute" -Level WARNING
 }
-Write-Log "Log File: $logFile" -Level INFO
 
-Close-Logging
+Write-Log "" -Level INFO
+Write-Log "=== dsp-breakAD Execution Completed ===" -Level INFO
+Write-Log "Log file: $logFile" -Level INFO
 
-Write-Host ""
-Write-Host "========================================" -ForegroundColor Green
-Write-Host "Execution Complete" -ForegroundColor Green
-Write-Host "========================================" -ForegroundColor Green
-Write-Host ""
+# Close logging
+if (Get-Command Close-Logging -ErrorAction SilentlyContinue) {
+    Close-Logging
+}
