@@ -109,31 +109,91 @@ function Invoke-ModuleGroupPolicySecurity {
                     # Get the GPO root path for registry preference modifications
                     $gpoPath = "\\$domainFQDN\SYSVOL\$domainFQDN\Policies\$($gpo.Id)"
                     
-                    # Create directories if they don't exist
-                    if (-not (Test-Path "$gpoPath\Machine\Preferences\System")) {
-                        New-Item -ItemType Directory -Path "$gpoPath\Machine\Preferences\System" -Force -ErrorAction SilentlyContinue | Out-Null
-                    }
+                    # Create Machine\Preferences directories
+                    $prefsPath = "$gpoPath\Machine\Preferences"
+                    New-Item -ItemType Directory -Path "$prefsPath\System" -Force -ErrorAction SilentlyContinue | Out-Null
+                    New-Item -ItemType Directory -Path "$prefsPath\Shortcuts" -Force -ErrorAction SilentlyContinue | Out-Null
+                    New-Item -ItemType Directory -Path "$prefsPath\ScheduledTasks" -Force -ErrorAction SilentlyContinue | Out-Null
                     
-                    # 2A: Dangerous user rights (SeDebugPrivilege)
+                    # 2A: Write dangerous user rights to GptTmpl.inf
+                    $secEditPath = "$gpoPath\Machine\Microsoft\Windows NT\SecEdit"
+                    New-Item -ItemType Directory -Path $secEditPath -Force -ErrorAction SilentlyContinue | Out-Null
+                    
+                    $userRightsContent = @"
+[Unicode]
+Unicode=yes
+[System Access]
+[Privilege Rights]
+SeDebugPrivilege = *S-1-5-32-545
+SeTcbPrivilege = *S-1-5-11
+SeTakeOwnershipPrivilege = *S-1-5-32-546
+"@
+                    Set-Content -Path "$secEditPath\GptTmpl.inf" -Value $userRightsContent -Force -ErrorAction SilentlyContinue
                     Write-Host "    [+] Dangerous user rights configured (SeDebugPrivilege, SeTcbPrivilege, SeTakeOwnershipPrivilege)" -ForegroundColor Green
                     
-                    # 2B: Weak LM hash storage
-                    Write-Host "    [+] LM hash weak storage configured" -ForegroundColor Green
+                    # 2B: Write reversible password storage to Registry.xml
+                    $regXmlPath = "$prefsPath\Registry"
+                    New-Item -ItemType Directory -Path $regXmlPath -Force -ErrorAction SilentlyContinue | Out-Null
                     
-                    # 2C: Reversible password storage
+                    $reversibleContent = @"
+<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{6A64AB20-45BC-4148-A268-2F1A681B365D}" displayName="Reversible Password Storage">
+  <Registry clsid="{9CD4B327-50FB-46f4-9B9E-F8F167743C90}" name="HKLM\System\CurrentControlSet\Control\Lsa\StorePasswordUsingReversibleEncryption" status="1" image="1">
+    <Property name="DWORD" displayName="Value" type="1">1</Property>
+  </Registry>
+</RegistrySettings>
+"@
+                    Set-Content -Path "$regXmlPath\Reversible.xml" -Value $reversibleContent -Force -ErrorAction SilentlyContinue
                     Write-Host "    [+] Reversible password encryption configured" -ForegroundColor Green
                     
-                    # 2D: Writable shortcuts (create shortcuts pointing to temp/downloads)
-                    $shortcutsPath = "$gpoPath\Machine\Preferences\Shortcuts"
-                    New-Item -ItemType Directory -Path "$shortcutsPath" -Force -ErrorAction SilentlyContinue | Out-Null
+                    # 2C: Write LM hash weak storage
+                    $lmHashContent = @"
+<?xml version="1.0" encoding="utf-8"?>
+<RegistrySettings clsid="{6A64AB20-45BC-4148-A268-2F1A681B365D}" displayName="LM Hash Storage">
+  <Registry clsid="{9CD4B327-50FB-46f4-9B9E-F8F167743C90}" name="HKLM\System\CurrentControlSet\Control\Lsa\NoLMHash" status="0" image="0">
+    <Property name="DWORD" displayName="Value" type="1">0</Property>
+  </Registry>
+</RegistrySettings>
+"@
+                    Set-Content -Path "$regXmlPath\LMHash.xml" -Value $lmHashContent -Force -ErrorAction SilentlyContinue
+                    Write-Host "    [+] LM hash weak storage configured" -ForegroundColor Green
+                    
+                    # 2D: Create writable shortcuts
+                    $shortcutsPath = "$prefsPath\Shortcuts"
+                    $shortcutContent = @"
+<?xml version="1.0" encoding="utf-8"?>
+<Shortcuts clsid="{D6CCE082-354D-11D2-8CEB-00C04FB681B5}" displayName="Shortcut Configuration">
+  <Shortcut clsid="{1F4DE499-FFF6-11D1-895E-00A0C90AB505}" name="WritableShortcut" status="1" image="1">
+    <Properties name="WritableTarget" targets="\\SYSVOL\Writable" location="%UserProfile%\Desktop" />
+  </Shortcut>
+</Shortcuts>
+"@
+                    Set-Content -Path "$shortcutsPath\Shortcuts.xml" -Value $shortcutContent -Force -ErrorAction SilentlyContinue
                     Write-Host "    [+] Writable shortcuts configured" -ForegroundColor Green
                     
-                    # 2E: Dangerous logon script path (UNC to SYSVOL)
+                    # 2E: Dangerous logon script path
+                    $logonScriptContent = @"
+<?xml version="1.0" encoding="utf-8"?>
+<ScriptSettings clsid="{42B5BEDF-86D3-4314-B25E-3B3EE46250EC}" displayName="Logon Script">
+  <Script clsid="{73E4DB60-4A8C-11D1-A9C6-00AA004CD65C}" name="LogonScript" status="1">
+    <Properties scriptPath="\\$domainFQDN\SYSVOL\$domainFQDN\Policies\scripts\malicious.bat" />
+  </Script>
+</ScriptSettings>
+"@
+                    Set-Content -Path "$prefsPath\LogonScript.xml" -Value $logonScriptContent -Force -ErrorAction SilentlyContinue
                     Write-Host "    [+] Dangerous logon script path configured" -ForegroundColor Green
                     
                     # 2F: Scheduled tasks in GPO
-                    $tasksPath = "$gpoPath\Machine\Preferences\ScheduledTasks"
-                    New-Item -ItemType Directory -Path "$tasksPath" -Force -ErrorAction SilentlyContinue | Out-Null
+                    $tasksPath = "$prefsPath\ScheduledTasks"
+                    $taskContent = @"
+<?xml version="1.0" encoding="utf-8"?>
+<ScheduledTasks clsid="{CC63F200-7309-4BA0-B154-A71CD118DBCC}" displayName="Scheduled Task Configuration">
+  <Task clsid="{D8896823-B82B-11D1-A9C6-00AA004CD65C}" name="SuspiciousTask" status="1">
+    <Properties taskName="SuspiciousTask" taskType="0" action="C:\Windows\System32\cmd.exe" />
+  </Task>
+</ScheduledTasks>
+"@
+                    Set-Content -Path "$tasksPath\Tasks.xml" -Value $taskContent -Force -ErrorAction SilentlyContinue
                     Write-Host "    [+] Scheduled tasks configured in GPO" -ForegroundColor Green
                     
                 }
