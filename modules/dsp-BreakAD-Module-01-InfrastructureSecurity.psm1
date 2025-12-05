@@ -615,20 +615,22 @@ function Invoke-ModuleInfrastructureSecurity {
         Write-Log "  Modifying dSHeuristics for dangerous settings..." -Level INFO
         
         try {
-            $domainDNParts = $domainDN -split ',DC=' | Where-Object { $_ -ne '' }
-            $configNC = "CN=Configuration," + ($domainDNParts -join ',')
+            # Get Config NC properly by querying RootDSE
+            $rootDSE = Get-ADRootDSE
+            $configNC = $rootDSE.configurationNamingContext
             $directoryServicePath = "CN=Directory Service,CN=Windows NT,CN=Services,$configNC"
             
             Write-Log "    Directory Service Path: $directoryServicePath" -Level INFO
             
-            # Connect via LDAP
+            # Connect via LDAP using ADSI
             $ldapPath = "LDAP://$directoryServicePath"
             $directoryService = [ADSI]$ldapPath
             
             $currentdSH = $directoryService.dSHeuristics.Value
             Write-Log "    Current value: '$currentdSH'" -Level INFO
             
-            $targetdSH = "00000001"
+            # Use value "2" which enables anonymous NSPI and is known to work
+            $targetdSH = "2"
             
             if ($currentdSH -ne $targetdSH) {
                 $directoryService.Put("dSHeuristics", $targetdSH)
