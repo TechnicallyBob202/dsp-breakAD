@@ -213,14 +213,17 @@ function Invoke-ModuleInfrastructureSecurity {
             }
             else {
                 Write-Log "      Creating..." -Level INFO
-                Write-Log "      [DEBUG] userName: '$userName'" -Level INFO
-                Write-Log "      [DEBUG] usersOUPath: '$usersOUPath'" -Level INFO
-                Write-Log "      [DEBUG] enterpriseAdminEnabled: '$enterpriseAdminEnabled'" -Level INFO
-                Write-Log "      [DEBUG] enterpriseAdminPassword length: $($enterpriseAdminPassword.Length)" -Level INFO
-                Write-Log "      [DEBUG] enterpriseAdminDescription: '$enterpriseAdminDescription'" -Level INFO
                 
                 # Create the user
-                New-ADUser -Name $userName -SamAccountName $userName -AccountPassword $enterpriseAdminSecurePassword -Enabled $enterpriseAdminEnabled -Description $enterpriseAdminDescription -ChangePasswordAtLogon $false -Path $usersOUPath -ErrorAction Stop
+                New-ADUser `
+                    -Name $userName `
+                    -SamAccountName $userName `
+                    -AccountPassword $enterpriseAdminSecurePassword `
+                    -Enabled $enterpriseAdminEnabled `
+                    -Description $enterpriseAdminDescription `
+                    -ChangePasswordAtLogon $false `
+                    -Path $usersOUPath `
+                    -ErrorAction Stop
                 
                 Write-LogChange -Object $userName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
                 Write-Log "      [+] Created" -Level SUCCESS
