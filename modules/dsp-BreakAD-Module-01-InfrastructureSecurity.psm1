@@ -467,16 +467,17 @@ function Invoke-ModuleInfrastructureSecurity {
                 Write-Log "    Processing DC: $($dcItem.HostName)" -Level INFO
                 
                 try {
-                    # Configure DNS zone to allow non-secure dynamic updates
                     Invoke-Command -ComputerName $dcItem.HostName -ScriptBlock {
-                        # Get all zones
-                        $zones = Get-DnsServerZone -ErrorAction SilentlyContinue
+                        $zones = Get-DnsServerZone -ErrorAction SilentlyContinue | Where-Object { $_.ZoneType -eq "Primary" -and -not $_.IsReverseLookupZone }
                         
                         if ($zones) {
                             foreach ($zone in $zones) {
-                                if ($zone.ZoneType -eq "Primary" -and -not $zone.IsReverseLookupZone) {
-                                    Set-DnsServerPrimaryZone -Name $zone.Name -DynamicUpdate NonsecureAndSecure -ErrorAction SilentlyContinue
-                                    Write-Output "Configured: $($zone.Name)"
+                                if ($zone.DynamicUpdate -ne "NonsecureAndSecure") {
+                                    Set-DnsServerPrimaryZone -Name $zone.ZoneName -DynamicUpdate NonsecureAndSecure -ErrorAction SilentlyContinue
+                                    Write-Output "Updated: $($zone.ZoneName)"
+                                }
+                                else {
+                                    Write-Output "Already configured: $($zone.ZoneName)"
                                 }
                             }
                         }
