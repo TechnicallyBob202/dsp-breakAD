@@ -200,7 +200,7 @@ function Invoke-ModuleInfrastructureSecurity {
         Write-Log "  Creating $enterpriseAdminCount Enterprise Admin user(s)..." -Level INFO
         
         for ($i = 1; $i -le $enterpriseAdminCount; $i++) {
-            $userName = "break-EnterpriseAdmin-" + "{0:D2}" -f $i
+            $userName = "break-EntAdmin-" + "{0:D2}" -f $i
             
             Write-Log "    Processing: $userName" -Level INFO
             
