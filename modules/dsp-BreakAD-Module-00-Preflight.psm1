@@ -1,6 +1,6 @@
 ################################################################################
 ##
-## dsp-BreakAD-Module-00-Preflight.psm1
+## dsp-BreakAD-Module-00-Preflight.psm1 (FIXED)
 ##
 ## Preflight Setup - Environment Preparation
 ##
@@ -42,15 +42,18 @@ function Invoke-ModulePreflight {
     Write-Log "PHASE 0: Create Organizational Unit Structure" -Level INFO
     
     $domainDN = $domain.DistinguishedName
-    $rootOUName = $config['BreakAD_RootOU']
-    $usersOUName = $config['BreakAD_UsersOU']
-    $computersOUName = $config['BreakAD_ComputersOU']
+    $rootOUName = if ($config['BreakAD_RootOU']) { $config['BreakAD_RootOU'] } else { 'BreakAD' }
+    $usersOUName = if ($config['BreakAD_UsersOU']) { $config['BreakAD_UsersOU'] } else { 'Users' }
+    $computersOUName = if ($config['BreakAD_ComputersOU']) { $config['BreakAD_ComputersOU'] } else { 'Computers' }
     
     $rootOUPath = "OU=$rootOUName,$domainDN"
     
     # Create root OU
     Write-Log "  Creating/verifying root OU: $rootOUName" -Level INFO
-    if (-not (Get-ADOrganizationalUnit -Filter "Name -eq '$rootOUName'" -SearchBase $domainDN -ErrorAction SilentlyContinue)) {
+    $rootOUFilter = "(&(objectClass=organizationalUnit)(name=$rootOUName))"
+    $rootOUExists = Get-ADOrganizationalUnit -Filter $rootOUFilter -ErrorAction SilentlyContinue
+    
+    if (-not $rootOUExists) {
         try {
             New-ADOrganizationalUnit -Name $rootOUName -Path $domainDN -ErrorAction Stop | Out-Null
             Write-Log "    [+] Created" -Level SUCCESS
@@ -66,7 +69,10 @@ function Invoke-ModulePreflight {
     
     # Create users OU
     Write-Log "  Creating/verifying users OU: $usersOUName" -Level INFO
-    if (-not (Get-ADOrganizationalUnit -Filter "Name -eq '$usersOUName'" -SearchBase $rootOUPath -ErrorAction SilentlyContinue)) {
+    $usersOUFilter = "(&(objectClass=organizationalUnit)(name=$usersOUName))"
+    $usersOUExists = Get-ADOrganizationalUnit -Filter $usersOUFilter -SearchBase $rootOUPath -ErrorAction SilentlyContinue
+    
+    if (-not $usersOUExists) {
         try {
             New-ADOrganizationalUnit -Name $usersOUName -Path $rootOUPath -ErrorAction Stop | Out-Null
             Write-Log "    [+] Created" -Level SUCCESS
@@ -82,7 +88,10 @@ function Invoke-ModulePreflight {
     
     # Create computers OU
     Write-Log "  Creating/verifying computers OU: $computersOUName" -Level INFO
-    if (-not (Get-ADOrganizationalUnit -Filter "Name -eq '$computersOUName'" -SearchBase $rootOUPath -ErrorAction SilentlyContinue)) {
+    $computersOUFilter = "(&(objectClass=organizationalUnit)(name=$computersOUName))"
+    $computersOUExists = Get-ADOrganizationalUnit -Filter $computersOUFilter -SearchBase $rootOUPath -ErrorAction SilentlyContinue
+    
+    if (-not $computersOUExists) {
         try {
             New-ADOrganizationalUnit -Name $computersOUName -Path $rootOUPath -ErrorAction Stop | Out-Null
             Write-Log "    [+] Created" -Level SUCCESS
@@ -147,70 +156,7 @@ function Invoke-ModulePreflight {
         Write-Log "    [+] AD domain: $($adTest.Name)" -Level SUCCESS
     }
     catch {
-        Write-Log "    [!] AD connectivity failed: $_" -Level ERROR
-        return $false
-    }
-    
-    # Verify Domain Controllers are reachable
-    Write-Log "  Checking Domain Controller reachability..." -Level INFO
-    try {
-        $dcTest = Get-ADDomainController -Filter * -ErrorAction Stop
-        if ($dcTest.Count -eq 0) {
-            Write-Log "    [!] No Domain Controllers found" -Level ERROR
-            return $false
-        }
-        Write-Log "    [+] Found $($dcTest.Count) Domain Controller(s)" -Level SUCCESS
-    }
-    catch {
-        Write-Log "    [!] Domain Controller check failed: $_" -Level ERROR
-        return $false
-    }
-    
-    # Check replication health
-    Write-Log "  Checking replication health..." -Level INFO
-    try {
-        $replHealth = Get-ADReplicationFailure -Scope Forest -ErrorAction SilentlyContinue
-        if ($replHealth.Count -gt 0) {
-            Write-Log "    [!] Replication issues detected - proceed with caution" -Level WARNING
-        }
-        else {
-            Write-Log "    [+] Replication health verified" -Level SUCCESS
-        }
-    }
-    catch {
-        Write-Log "    [!] Could not check replication: $_" -Level WARNING
-    }
-    
-    Write-Log "" -Level INFO
-    
-    ################################################################################
-    # PHASE 2: DISCOVER DOMAIN INFORMATION
-    ################################################################################
-    
-    Write-Log "PHASE 2: Discover Domain Information" -Level INFO
-    
-    try {
-        $discoveredDomain = Get-ADDomain -ErrorAction Stop
-        $discoveredDCs = Get-ADDomainController -Filter * -ErrorAction Stop
-        
-        if ($discoveredDCs -is [array]) {
-            $discoveredPrimaryDC = $discoveredDCs[0]
-        }
-        else {
-            $discoveredPrimaryDC = $discoveredDCs
-        }
-        
-        Write-Log "  Domain: $($discoveredDomain.Name)" -Level SUCCESS
-        Write-Log "  Domain DN: $($discoveredDomain.DistinguishedName)" -Level SUCCESS
-        Write-Log "  Forest: $($discoveredDomain.Forest)" -Level SUCCESS
-        Write-Log "  Primary DC: $($discoveredPrimaryDC.HostName)" -Level SUCCESS
-        
-        # Update environment object with discovered info
-        $Environment.Domain = $discoveredDomain
-        $Environment.DomainController = $discoveredPrimaryDC
-    }
-    catch {
-        Write-Log "  [!] Failed to discover domain information: $_" -Level ERROR
+        Write-Log "    [!] Failed to discover domain information: $_" -Level ERROR
         return $false
     }
     
