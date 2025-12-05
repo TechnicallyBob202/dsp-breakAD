@@ -6,8 +6,6 @@ function Invoke-ModuleInfrastructureSecurity {
     $adDomainRwdcPdcFsmoFQDN = $Environment.Domain.PDCEmulator
     $adDomainDomainControllersContainerDN = $Environment.Domain.DomainControllersContainer
     $adForestConfigNCDN = $Environment.Forest.ConfigurationNamingContext
-    $adForestSchemaNCDN = "CN=Schema," + $adForestConfigNCDN
-    $adForestRootDomainSID = $Environment.Forest.RootDomain
     $OU = "OU=TEST,$adDomainDN"
     
     Write-Host ""
@@ -59,6 +57,8 @@ function Invoke-ModuleInfrastructureSecurity {
     # Schema permissions (BdActr100-102)
     Write-Host "Modifying schema permissions..." -ForegroundColor Yellow
     try {
+        $configNC = $Environment.Forest.ConfigurationNamingContext
+        $adForestSchemaNCDN = "CN=Schema,$configNC"
         $schemaNC = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adForestSchemaNCDN)
         
         for ($i = 100; $i -le 102; $i++) {

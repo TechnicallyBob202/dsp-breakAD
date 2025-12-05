@@ -114,8 +114,11 @@ function Invoke-ModuleADDelegations {
         Try {
             $badAct0rAccount = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
             $accountOperatorsGroup = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($accountOperatorsObject.Properties.distinguishedname[0]))
-            $accountOperatorsGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
-            $accountOperatorsGroup.SetInfo()
+            $existingMembers = @($accountOperatorsGroup.member)
+            if ($existingMembers -notcontains $badAct0rObject.Properties.distinguishedname[0]) {
+                $accountOperatorsGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
+                $accountOperatorsGroup.SetInfo()
+            }
             [int]$ADS_PROPERTY_CLEAR = 1
             $badAct0rAccount.PutEx($ADS_PROPERTY_CLEAR, "adminCount", 0)
             $badAct0rAccount.SetInfo()
@@ -142,8 +145,11 @@ function Invoke-ModuleADDelegations {
         Try {
             $badAct0rAccount = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
             $backupOperatorsGroup = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($backupOperatorsObject.Properties.distinguishedname[0]))
-            $backupOperatorsGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
-            $backupOperatorsGroup.SetInfo()
+            $existingMembers = @($backupOperatorsGroup.member)
+            if ($existingMembers -notcontains $badAct0rObject.Properties.distinguishedname[0]) {
+                $backupOperatorsGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
+                $backupOperatorsGroup.SetInfo()
+            }
             [int]$ADS_PROPERTY_CLEAR = 1
             $badAct0rAccount.PutEx($ADS_PROPERTY_CLEAR, "adminCount", 0)
             $badAct0rAccount.SetInfo()
@@ -170,8 +176,11 @@ function Invoke-ModuleADDelegations {
         Try {
             $badAct0rAccount = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
             $serverOperatorsGroup = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($serverOperatorsObject.Properties.distinguishedname[0]))
-            $serverOperatorsGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
-            $serverOperatorsGroup.SetInfo()
+            $existingMembers = @($serverOperatorsGroup.member)
+            if ($existingMembers -notcontains $badAct0rObject.Properties.distinguishedname[0]) {
+                $serverOperatorsGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
+                $serverOperatorsGroup.SetInfo()
+            }
             [int]$ADS_PROPERTY_CLEAR = 1
             $badAct0rAccount.PutEx($ADS_PROPERTY_CLEAR, "adminCount", 0)
             $badAct0rAccount.SetInfo()

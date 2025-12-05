@@ -22,42 +22,7 @@ function Invoke-ModuleAccountSecurity {
     $domainAdminsStringFormat = $adDomainSID + "-512"
     $domainAdminsPrincipalName = $(New-Object System.Security.Principal.SecurityIdentifier($domainAdminsStringFormat)).Translate([System.Security.Principal.NTAccount]).Value
     
-    # Disabled Accounts (24-26)
-    Write-Host "Disabling accounts and adding to protected groups..." -ForegroundColor Yellow
-    
-    $disabledAccounts = @(
-        @{ Num = 24; Group = $accountOperatorsPrincipalName; GroupName = "Account Operators" }
-        @{ Num = 25; Group = $backupOperatorsPrincipalName; GroupName = "Backup Operators" }
-        @{ Num = 26; Group = $serverOperatorsPrincipalName; GroupName = "Server Operators" }
-    )
-    
-    foreach ($account in $disabledAccounts) {
-        $badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + $account.Num
-        $adsiSearcher = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName))"
-        $adsiSearcher.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
-        $badAct0rObject = $adsiSearcher.FindOne()
-        
-        if ($badAct0rObject) {
-            $adsiSearcher2 = [adsisearcher]"(&(objectCategory=Group)(objectClass=group)(sAMAccountName=$($account.Group.Split('\')[1])))"
-            $adsiSearcher2.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
-            $groupObject = $adsiSearcher2.FindOne()
-            
-            if ($groupObject) {
-                try {
-                    $badAct0rAccount = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
-                    $group = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($groupObject.Properties.distinguishedname[0]))
-                    $group.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.Properties.distinguishedname[0]))
-                    $group.SetInfo()
-                    $badAct0rAccount.Put("userAccountControl", $($badAct0rObject.Properties.useraccountcontrol[0] -bor 2))
-                    $badAct0rAccount.SetInfo()
-                    Write-Host "  [+] '$adDomainNetBIOS\$badAct0rSamAccountName' added to $($account.GroupName) and disabled" -ForegroundColor Green
-                } catch {
-                    Write-Host "  [!] Error with $badAct0rSamAccountName`: $_" -ForegroundColor Yellow
-                }
-            }
-        }
-    }
-    Write-Host ""
+
     
     # Ephemeral Admins (27-29)
     Write-Host "Creating ephemeral memberships..." -ForegroundColor Yellow
