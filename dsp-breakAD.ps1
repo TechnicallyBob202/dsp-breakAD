@@ -134,7 +134,7 @@ if (-not $SkipPreflight) {
         }
         
         # Check DC connectivity
-        $dcTest = Test-NetConnection -ComputerName $primaryDC.HostName -CommonTCPPort LDAP -WarningAction SilentlyContinue
+        $dcTest = Test-NetConnection -ComputerName $primaryDC.HostName -Port 389 -WarningAction SilentlyContinue
         if (-not $dcTest.TcpTestSucceeded) {
             Write-Log "ERROR: Cannot connect to DC on LDAP port" -Level ERROR
             exit 1
