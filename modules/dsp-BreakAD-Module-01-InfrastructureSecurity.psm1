@@ -629,8 +629,8 @@ function Invoke-ModuleInfrastructureSecurity {
             $currentdSH = $directoryService.dSHeuristics.Value
             Write-Log "    Current value: '$currentdSH'" -Level INFO
             
-            # Use value "2" which enables anonymous NSPI and is known to work
-            $targetdSH = "2"
+            # Use value "00000001" which enables anonymous NSPI
+            $targetdSH = "00000001"
             
             if ($currentdSH -ne $targetdSH) {
                 $directoryService.Put("dSHeuristics", $targetdSH)
