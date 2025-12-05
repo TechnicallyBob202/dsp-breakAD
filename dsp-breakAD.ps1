@@ -15,7 +15,7 @@
 
 param(
     [Parameter(Mandatory=$false)]
-    [ValidateSet('Preflight', 'InfrastructureSecurity', 'AccountSecurity', 'ADDelegation', 'KerberosSecurity', 'GroupPolicySecurity')]
+    [ValidateSet('Preflight', 'InfrastructureSecurity', 'AccountSecurity', 'GroupPolicySecurity')]
     [string[]]$ModuleNames,
     
     [Parameter(Mandatory=$false)]
@@ -60,7 +60,7 @@ Write-Log "Script Path: $Script:ScriptPath" -Level INFO
 Write-Log "Log File: $logFile" -Level INFO
 
 ################################################################################
-# LOAD CONFIGURATION
+# PHASE 1: LOAD CONFIGURATION
 ################################################################################
 
 Write-LogSection "PHASE 1: Load Configuration"
@@ -77,11 +77,7 @@ else {
 }
 
 ################################################################################
-# MODULE SELECTION
-################################################################################
-
-################################################################################
-# RUN PREFLIGHT
+# PHASE 2: RUN PREFLIGHT
 ################################################################################
 
 Write-LogSection "PHASE 2: Run Preflight"
@@ -137,7 +133,7 @@ else {
 }
 
 ################################################################################
-# MODULE SELECTION
+# PHASE 3: MODULE SELECTION
 ################################################################################
 
 Write-LogSection "PHASE 3: Module Selection"
@@ -145,8 +141,6 @@ Write-LogSection "PHASE 3: Module Selection"
 $availableModules = @(
     "InfrastructureSecurity",
     "AccountSecurity",
-    "ADDelegation",
-    "KerberosSecurity",
     "GroupPolicySecurity"
 )
 
@@ -201,7 +195,7 @@ if ($selectedModules.Count -eq 0) {
 Write-Log "Selected $($selectedModules.Count) module(s)" -Level SUCCESS
 
 ################################################################################
-# LOAD MODULES
+# PHASE 4: LOAD MODULES
 ################################################################################
 
 Write-LogSection "PHASE 4: Load Modules"
@@ -242,7 +236,7 @@ if ($loadedModules.Count -eq 0) {
 Write-Log "Successfully loaded $($loadedModules.Count) module(s)" -Level SUCCESS
 
 ################################################################################
-# BUILD ENVIRONMENT OBJECT
+# PHASE 5: BUILD ENVIRONMENT
 ################################################################################
 
 Write-LogSection "PHASE 5: Build Environment"
@@ -251,7 +245,7 @@ Write-LogSection "PHASE 5: Build Environment"
 Write-Log "Environment object ready (populated by Preflight)" -Level SUCCESS
 
 ################################################################################
-# EXECUTE MODULES
+# PHASE 6: EXECUTE MODULES
 ################################################################################
 
 Write-LogSection "PHASE 6: Execute Modules"
@@ -265,7 +259,7 @@ foreach ($moduleName in $loadedModules) {
     Write-Log "" -Level INFO
     
     try {
-        # Convert module name to function name: Preflight -> Invoke-ModulePreflight
+        # Convert module name to function name: InfrastructureSecurity -> Invoke-ModuleInfrastructureSecurity
         $functionName = "Invoke-Module$(($moduleName -replace '\s+', '') -replace '-', '')"
         
         # Try to call the function
@@ -286,7 +280,7 @@ foreach ($moduleName in $loadedModules) {
 }
 
 ################################################################################
-# EXECUTION SUMMARY
+# PHASE 7: EXECUTION SUMMARY
 ################################################################################
 
 Write-LogSection "PHASE 7: Execution Summary"
