@@ -97,10 +97,13 @@ function Invoke-ModuleInfrastructureSecurity {
                 $userName = "break-SchemaAdmin-$i"
                 $userDN = "CN=$userName,CN=Users,$domainDN"
                 
+                Write-Log "  Processing: $userName" -Level INFO
+                
                 try {
                     # Create user if doesn't exist
                     $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
                     if (-not $existingUser) {
+                        Write-Log "    User does not exist, creating..." -Level INFO
                         try {
                             New-ADUser `
                                 -Name $userName `
