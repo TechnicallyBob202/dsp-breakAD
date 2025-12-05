@@ -254,6 +254,7 @@ function Invoke-ModuleInfrastructureSecurity {
     
     if ($config['InfrastructureSecurity_EnableSMBv1'] -eq 'true') {
         Write-Log "  Creating/modifying GPO for SMBv1..." -Level INFO
+        Write-Log "  NOTE: SMBv1 may require Domain Controller restart to take effect" -Level WARNING
         
         try {
             $gpoName = "dsp-breakAD-SMBv1"
@@ -341,8 +342,247 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # COMPLETION
+    # PHASE 7: DISABLE AdminSDHolder SDProp PROTECTION
     ################################################################################
+    
+    Write-Log "PHASE 7: Disable AdminSDHolder SDProp Protection on Operator Groups" -Level INFO
+    
+    if ($config['InfrastructureSecurity_DisableAdminSDHolder'] -eq 'true') {
+        Write-Log "  Removing AdminSDHolder protection from Operator groups..." -Level INFO
+        
+        try {
+            $operatorGroups = @("Backup Operators", "Account Operators", "Print Operators")
+            
+            foreach ($groupName in $operatorGroups) {
+                Write-Log "    Processing group: $groupName" -Level INFO
+                
+                try {
+                    $group = Get-ADGroup -Identity $groupName -ErrorAction Stop
+                    $groupADSI = [ADSI]"LDAP://$($group.DistinguishedName)"
+                    
+                    # Set adminCount to 0 to remove from AdminSDHolder protection
+                    $groupADSI.Put("adminCount", 0)
+                    $groupADSI.SetInfo()
+                    
+                    Write-Log "      [+] Removed from AdminSDHolder protection" -Level SUCCESS
+                }
+                catch {
+                    Write-Log "      [!] Error: $_" -Level WARNING
+                }
+            }
+        }
+        catch {
+            Write-Log "  [!] Error: $_" -Level WARNING
+        }
+    }
+    else {
+        Write-Log "  [*] AdminSDHolder modification disabled in config" -Level INFO
+    }
+    
+    Write-Log "" -Level INFO
+    
+    ################################################################################
+    # PHASE 8: SET DANGEROUS TRUST ATTRIBUTES
+    ################################################################################
+    
+    Write-Log "PHASE 8: Set Dangerous Trust Attributes" -Level INFO
+    
+    if ($config['InfrastructureSecurity_DangerousTrustAttribute'] -eq 'true') {
+        Write-Log "  Setting dangerous trust attributes..." -Level INFO
+        
+        try {
+            # Get all trusts in the domain
+            $trusts = Get-ADTrust -Filter * -ErrorAction SilentlyContinue
+            
+            if ($trusts) {
+                foreach ($trust in $trusts) {
+                    Write-Log "    Processing trust: $($trust.Name)" -Level INFO
+                    
+                    try {
+                        # Set TrustDirection to Bidirectional if not already
+                        if ($trust.Direction -ne "Bidirectional") {
+                            Set-ADTrust -Identity $trust.Name -Direction Bidirectional -ErrorAction Stop
+                            Write-Log "      [+] Set to Bidirectional" -Level SUCCESS
+                        }
+                        
+                        # Enable SIDHistory on trust (dangerous)
+                        Set-ADTrust -Identity $trust.Name -SIDHistoryEnabled $true -ErrorAction Stop
+                        Write-Log "      [+] SIDHistory enabled on trust" -Level SUCCESS
+                    }
+                    catch {
+                        Write-Log "      [!] Error: $_" -Level WARNING
+                    }
+                }
+            }
+            else {
+                Write-Log "    [*] No trusts found in domain" -Level INFO
+            }
+        }
+        catch {
+            Write-Log "  [!] Error: $_" -Level WARNING
+        }
+    }
+    else {
+        Write-Log "  [*] Dangerous trust attributes disabled in config" -Level INFO
+    }
+    
+    Write-Log "" -Level INFO
+    
+    ################################################################################
+    # PHASE 9: ADD WELL-KNOWN PRIVILEGED SIDs TO SIDHistory
+    ################################################################################
+    
+    Write-Log "PHASE 9: Add Well-Known Privileged SIDs to SIDHistory" -Level INFO
+    
+    if ($config['InfrastructureSecurity_AddPrivilegedSIDHistory'] -eq 'true') {
+        Write-Log "  Adding privileged SIDs to user SIDHistory..." -Level INFO
+        
+        try {
+            # Well-known privileged SIDs to add
+            $privilegedSIDs = @(
+                "S-1-5-32-548",  # Account Operators
+                "S-1-5-32-549",  # Server Operators
+                "S-1-5-32-550"   # Print Operators
+            )
+            
+            # Find test user to add SIDHistory to
+            $testUsers = Get-ADUser -Filter "Name -like 'break-*'" -ErrorAction SilentlyContinue | Select-Object -First 3
+            
+            if ($testUsers) {
+                foreach ($user in $testUsers) {
+                    Write-Log "    Processing user: $($user.Name)" -Level INFO
+                    
+                    try {
+                        foreach ($sid in $privilegedSIDs) {
+                            # Use ADSI to add SIDHistory
+                            $userADSI = [ADSI]"LDAP://$($user.DistinguishedName)"
+                            $userADSI.PsBase.InvokeSet("SIDHistory", $sid)
+                            $userADSI.SetInfo()
+                            
+                            Write-Log "      [+] Added SID $sid to SIDHistory" -Level SUCCESS
+                        }
+                    }
+                    catch {
+                        Write-Log "      [!] Error adding SIDHistory: $_" -Level WARNING
+                    }
+                }
+            }
+            else {
+                Write-Log "    [*] No test users found (create users first)" -Level INFO
+            }
+        }
+        catch {
+            Write-Log "  [!] Error: $_" -Level WARNING
+        }
+    }
+    else {
+        Write-Log "  [*] SIDHistory modification disabled in config" -Level INFO
+    }
+    
+    Write-Log "" -Level INFO
+    
+    ################################################################################
+    # PHASE 10: MODIFY SCHEMA PERMISSIONS
+    ################################################################################
+    
+    Write-Log "PHASE 10: Modify Schema Permissions" -Level INFO
+    
+    if ($config['InfrastructureSecurity_ModifySchemaPermissions'] -eq 'true') {
+        Write-Log "  Modifying schema object permissions..." -Level INFO
+        
+        try {
+            $rootDSE = Get-ADRootDSE
+            $schemaNC = $rootDSE.schemaNamingContext
+            
+            # Get schema object
+            $schema = Get-ADObject -Identity $schemaNC -ErrorAction Stop
+            
+            Write-Log "    Schema DN: $schemaNC" -Level INFO
+            
+            # Grant Authenticated Users write access to schema (dangerous)
+            try {
+                $schemaADSI = [ADSI]"LDAP://$schemaNC"
+                $acl = $schemaADSI.PsBase.ObjectSecurity
+                
+                # Get Authenticated Users SID
+                $authUsersSID = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-11")
+                
+                # Create rule for Write access
+                $rule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
+                    $authUsersSID,
+                    [System.DirectoryServices.ActiveDirectoryRights]::GenericWrite,
+                    [System.Security.AccessControl.AccessControlType]::Allow
+                )
+                
+                $acl.AddAccessRule($rule)
+                $schemaADSI.PsBase.ObjectSecurity = $acl
+                
+                Write-Log "      [+] Added GenericWrite permission for Authenticated Users" -Level SUCCESS
+            }
+            catch {
+                Write-Log "      [!] Error modifying schema ACL: $_" -Level WARNING
+            }
+        }
+        catch {
+            Write-Log "  [!] Error: $_" -Level WARNING
+        }
+    }
+    else {
+        Write-Log "  [*] Schema permissions modification disabled in config" -Level INFO
+    }
+    
+    Write-Log "" -Level INFO
+    
+    ################################################################################
+    # PHASE 11: UNSECURED DNS CONFIGURATION
+    ################################################################################
+    
+    Write-Log "PHASE 11: Configure Unsecured DNS Updates" -Level INFO
+    
+    if ($config['InfrastructureSecurity_UnsecuredDNS'] -eq 'true') {
+        Write-Log "  Configuring DNS to allow unsecured updates..." -Level INFO
+        
+        try {
+            $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
+            
+            foreach ($dcItem in $domainControllers) {
+                Write-Log "    Processing DC: $($dcItem.HostName)" -Level INFO
+                
+                try {
+                    # Configure DNS zone to allow non-secure dynamic updates
+                    Invoke-Command -ComputerName $dcItem.HostName -ScriptBlock {
+                        param($domainName)
+                        
+                        # Get DNS zone
+                        $zone = Get-DnsServerZone -Name $domainName -ErrorAction SilentlyContinue
+                        
+                        if ($zone) {
+                            # Set zone to allow non-secure updates
+                            Set-DnsServerZoneAging -Name $domainName -Aging $true -ErrorAction SilentlyContinue
+                            Set-DnsServerPrimaryZone -Name $domainName -DynamicUpdate NonsecureAndSecure -ErrorAction Stop
+                            Write-Output "Updated"
+                        }
+                        else {
+                            Write-Output "Zone not found"
+                        }
+                    } -ArgumentList $domain.Name -ErrorAction Stop | ForEach-Object {
+                        Write-Log "      [+] DNS zone configured: $_" -Level SUCCESS
+                    }
+                }
+                catch {
+                    Write-Log "      [!] Error: $_" -Level WARNING
+                }
+            }
+        }
+        catch {
+            Write-Log "  [!] Error: $_" -Level WARNING
+        }
+    }
+    else {
+        Write-Log "  [*] DNS configuration disabled in config" -Level INFO
+    }
+    
+    Write-Log "" -Level INFO
     
     Write-Log "========================================" -Level INFO
     Write-Log "Module 01: Infrastructure Security" -Level INFO
