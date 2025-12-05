@@ -164,7 +164,7 @@ function Invoke-ModuleInfrastructureSecurity {
                 Write-Log "      [*] GPO link already exists" -Level INFO
             }
             
-            Set-GPPrefRegistryValue -Name $gpoName -Action Update -Key "HKLM\System\CurrentControlSet\Services\NTDS\Parameters" -ValueName "LDAPServerIntegrity" -Value 0 -Type DWORD -ErrorAction Stop | Out-Null
+            Set-GPPrefRegistryValue -Name $gpoName -Context Computer -Action Update -Key "HKLM\System\CurrentControlSet\Services\NTDS\Parameters" -ValueName "LDAPServerIntegrity" -Value 0 -Type DWORD -ErrorAction Stop | Out-Null
             Write-Log "      [+] Registry preference set (LDAPServerIntegrity = 0)" -Level SUCCESS
             
             Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
@@ -221,7 +221,7 @@ function Invoke-ModuleInfrastructureSecurity {
                 Write-Log "      [*] GPO link already exists" -Level INFO
             }
             
-            Set-GPPrefRegistryValue -Name $gpoName -Action Update -Key "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" -ValueName "RequireSecuritySignature" -Value 0 -Type DWORD -ErrorAction Stop | Out-Null
+            Set-GPPrefRegistryValue -Name $gpoName -Context Computer -Action Update -Key "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" -ValueName "RequireSecuritySignature" -Value 0 -Type DWORD -ErrorAction Stop | Out-Null
             Write-Log "      [+] Registry preference set (RequireSecuritySignature = 0)" -Level SUCCESS
             
             Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
@@ -278,7 +278,7 @@ function Invoke-ModuleInfrastructureSecurity {
                 Write-Log "      [*] GPO link already exists" -Level INFO
             }
             
-            Set-GPPrefRegistryValue -Name $gpoName -Action Update -Key "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" -ValueName "SMB1" -Value 1 -Type DWORD -ErrorAction Stop | Out-Null
+            Set-GPPrefRegistryValue -Name $gpoName -Context Computer -Action Update -Key "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" -ValueName "SMB1" -Value 1 -Type DWORD -ErrorAction Stop | Out-Null
             Write-Log "      [+] Registry preference set (SMB1 = 1)" -Level SUCCESS
             
             Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
