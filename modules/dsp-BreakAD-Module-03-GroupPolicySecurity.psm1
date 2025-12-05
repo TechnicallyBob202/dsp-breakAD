@@ -65,11 +65,12 @@ function Invoke-ModuleGroupPolicySecurity {
             # =====================================================================
             Write-Host "PHASE 1: Creating fresh GPOs..." -ForegroundColor Cyan
             
-            $gpoNames = @(
-                $config['GroupPolicySecurity_GPOName_Domain'] -or "breakAD-GroupPolicySecurity-Domain",
-                $config['GroupPolicySecurity_GPOName_Site'] -or "breakAD-GroupPolicySecurity-Site",
-                $config['GroupPolicySecurity_GPOName_DC'] -or "breakAD-GroupPolicySecurity-DC"
-            )
+            # Set GPO names with fallback defaults
+            $gpoNameDomain = if ($config['GroupPolicySecurity_GPOName_Domain']) { $config['GroupPolicySecurity_GPOName_Domain'] } else { "breakAD-GroupPolicySecurity-Domain" }
+            $gpoNameSite = if ($config['GroupPolicySecurity_GPOName_Site']) { $config['GroupPolicySecurity_GPOName_Site'] } else { "breakAD-GroupPolicySecurity-Site" }
+            $gpoNameDC = if ($config['GroupPolicySecurity_GPOName_DC']) { $config['GroupPolicySecurity_GPOName_DC'] } else { "breakAD-GroupPolicySecurity-DC" }
+            
+            $gpoNames = @($gpoNameDomain, $gpoNameSite, $gpoNameDC)
 
             $createdGPOs = @()
 
@@ -158,18 +159,17 @@ function Invoke-ModuleGroupPolicySecurity {
                 Write-Host "  [!] Failed to link domain GPO: $_" -ForegroundColor Yellow
             }
 
-            # 3B: Link Site GPO at Default-First-Site-Name
+            # 3B: Link Site GPO at first available site
             try {
                 $siteGPO = $createdGPOs[1]
-                $siteName = "Default-First-Site-Name"
-                $siteDN = Get-ADObject -Filter { Name -eq $siteName -and ObjectClass -eq "site" } -ErrorAction SilentlyContinue | Select-Object -ExpandProperty DistinguishedName
+                $siteDN = Get-ADObject -Filter { ObjectClass -eq "site" } -SearchBase "CN=Sites,CN=Configuration,$domainDN" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty DistinguishedName
                 
                 if ($siteDN) {
                     New-GPLink -Name $siteGPO.DisplayName -Target $siteDN -Server $dcFQDN -ErrorAction SilentlyContinue | Out-Null
                     Write-Host "  [+] Linked '$($siteGPO.DisplayName)' at Site level ($siteDN)" -ForegroundColor Green
                 }
                 else {
-                    Write-Host "  [!] Site '$siteName' not found" -ForegroundColor Yellow
+                    Write-Host "  [!] No sites found, skipping site-level linking" -ForegroundColor Yellow
                 }
             }
             catch {
@@ -257,8 +257,7 @@ function Invoke-ModuleGroupPolicySecurity {
 
             # 5B: Delegate at Site level
             try {
-                $siteName = "Default-First-Site-Name"
-                $siteDN = Get-ADObject -Filter { Name -eq $siteName -and ObjectClass -eq "site" } -ErrorAction SilentlyContinue | Select-Object -ExpandProperty DistinguishedName
+                $siteDN = Get-ADObject -Filter { ObjectClass -eq "site" } -SearchBase "CN=Sites,CN=Configuration,$domainDN" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty DistinguishedName
                 
                 if ($siteDN) {
                     $siteACL = Get-Acl "AD:$siteDN"
@@ -277,7 +276,7 @@ function Invoke-ModuleGroupPolicySecurity {
                     Write-Host "  [+] Granted GPO linking delegation at Site level to $($delegateAccount2.SamAccountName)" -ForegroundColor Green
                 }
                 else {
-                    Write-Host "  [!] Site '$siteName' not found, skipping site-level delegation" -ForegroundColor Yellow
+                    Write-Host "  [!] No sites found, skipping site-level delegation" -ForegroundColor Yellow
                 }
             }
             catch {
