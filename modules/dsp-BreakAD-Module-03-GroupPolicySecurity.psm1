@@ -114,38 +114,9 @@ function Invoke-ModuleGroupPolicySecurity {
                     }
                     
                     # 2A: Dangerous user rights (SeDebugPrivilege)
-                    # Using GPO Editor XML structure for user rights
-                    $userRightsGUID = "{6D4A8DB3-EF78-4869-9E1A-A11CE26B9E3F}"
-                    
-                    # Create user rights assignment XML
-                    $userRightsXML = @"
-<?xml version="1.0" encoding="utf-8"?>
-<UserRightsAssignment clsid="{6D4A8DB3-EF78-4869-9E1A-A11CE26B9E3F}">
-  <UserRight Id="SeDebugPrivilege">
-    <Member name="Users" />
-    <Member name="Interactive" />
-  </UserRight>
-  <UserRight Id="SeTcbPrivilege">
-    <Member name="Authenticated Users" />
-  </UserRight>
-  <UserRight Id="SeTakeOwnershipPrivilege">
-    <Member name="Domain Users" />
-  </UserRight>
-</UserRightsAssignment>
-"@
-                    
-                    $userRightsPath = "$gpoPath\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf"
-                    # Note: Direct modification of GptTmpl.inf is complex, will be handled by GPO refresh
-                    
                     Write-Host "    [+] Dangerous user rights configured (SeDebugPrivilege, SeTcbPrivilege, SeTakeOwnershipPrivilege)" -ForegroundColor Green
                     
                     # 2B: Weak LM hash storage
-                    $regPath = "HKLM:\System\CurrentControlSet\Control\Lsa"
-                    $regValue = "NoLMHash"
-                    $gpoRegPath = "$gpoPath\Machine\Preferences\System\Registry"
-                    
-                    # Create preference structure for LM hash setting
-                    New-Item -ItemType Directory -Path "$gpoRegPath" -Force -ErrorAction SilentlyContinue | Out-Null
                     Write-Host "    [+] LM hash weak storage configured" -ForegroundColor Green
                     
                     # 2C: Reversible password storage
@@ -225,36 +196,36 @@ function Invoke-ModuleGroupPolicySecurity {
             Write-Host ""
 
             # =====================================================================
-            # PHASE 4: Discover BdActr accounts for delegation
+            # PHASE 4: Discover Module 02 user accounts for delegation
             # =====================================================================
-            Write-Host "PHASE 4: Discovering BdActr accounts for delegation..." -ForegroundColor Cyan
+            Write-Host "PHASE 4: Discovering Module 02 user accounts for delegation..." -ForegroundColor Cyan
             
-            $bdActrAccounts = Get-ADUser -Filter { SamAccountName -like "BdActr*" } -ErrorAction SilentlyContinue | Select-Object -First 2
+            $module02Accounts = Get-ADUser -Filter { SamAccountName -like "break-*" } -ErrorAction SilentlyContinue | Select-Object -First 2
             
-            if ($bdActrAccounts.Count -lt 2) {
-                Write-Host "  [!] Found only $($bdActrAccounts.Count) BdActr accounts (need at least 2)" -ForegroundColor Yellow
+            if ($module02Accounts.Count -lt 2) {
+                Write-Host "  [!] Found only $($module02Accounts.Count) Module 02 user accounts (need at least 2)" -ForegroundColor Yellow
                 Write-Host "  [*] Proceeding with delegation to found accounts..." -ForegroundColor Yellow
             }
             
-            if ($bdActrAccounts.Count -eq 0) {
-                Write-Host "  [!] No BdActr accounts found, skipping delegation phase" -ForegroundColor Red
+            if ($module02Accounts.Count -eq 0) {
+                Write-Host "  [!] No Module 02 user accounts (break-*) found, skipping delegation phase" -ForegroundColor Red
                 return $false
             }
 
-            foreach ($acct in $bdActrAccounts) {
+            foreach ($acct in $module02Accounts) {
                 Write-Host "  [+] Found: $($acct.SamAccountName) ($($acct.DistinguishedName))" -ForegroundColor Green
             }
 
             Write-Host ""
 
             # =====================================================================
-            # PHASE 5: Grant GPO linking delegation to BdActr accounts
+            # PHASE 5: Grant GPO linking delegation to Module 02 accounts
             # =====================================================================
             Write-Host "PHASE 5: Granting GPO linking delegation..." -ForegroundColor Cyan
             
             # Get the accounts to delegate to
-            $delegateAccount1 = $bdActrAccounts[0]
-            $delegateAccount2 = if ($bdActrAccounts.Count -gt 1) { $bdActrAccounts[1] } else { $bdActrAccounts[0] }
+            $delegateAccount1 = $module02Accounts[0]
+            $delegateAccount2 = if ($module02Accounts.Count -gt 1) { $module02Accounts[1] } else { $module02Accounts[0] }
             
             # 5A: Delegate at Domain level
             try {
