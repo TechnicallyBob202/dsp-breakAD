@@ -58,7 +58,6 @@ Write-Host ""
 Write-Log "=== dsp-breakAD Execution Started ===" -Level INFO
 Write-Log "Script Path: $Script:ScriptPath" -Level INFO
 Write-Log "Log File: $logFile" -Level INFO
-Write-Log "" -Level INFO
 
 ################################################################################
 # PREFLIGHT CHECKS
@@ -146,11 +145,8 @@ if (-not $SkipPreflight) {
         Write-Log "WARNING: Could not fully validate can't-break conditions: $_" -Level WARNING
     }
     
-    Write-Log "" -Level INFO
     Write-Log "Preflight checks complete - ready to apply misconfigurations" -Level SUCCESS
 }
-
-Write-Log "" -Level INFO
 
 ################################################################################
 # LOAD CONFIGURATION
@@ -168,8 +164,6 @@ if (Test-Path $Script:ConfigPath) {
 else {
     Write-Log "WARNING: Config file not found, using defaults" -Level WARNING
 }
-
-Write-Log "" -Level INFO
 
 ################################################################################
 # MODULE SELECTION
@@ -205,11 +199,17 @@ else {
     Write-Host "  4) KerberosSecurity - Weak encryption, pre-auth bypass" -ForegroundColor White
     Write-Host "  5) GroupPolicySecurity - Weaken GPO permissions and settings" -ForegroundColor White
     Write-Host "  6) All - Run all modules" -ForegroundColor White
+    Write-Host "  0) Quit - Exit without running modules" -ForegroundColor Yellow
     Write-Host ""
     
-    $choice = Read-Host "Select modules (comma-separated numbers, or 'all')"
+    $choice = Read-Host "Select modules (comma-separated numbers, or 'all', or '0' to quit)"
     
-    if ($choice -eq "all") {
+    if ($choice -eq "0") {
+        Write-Log "User selected quit option" -Level INFO
+        Close-Logging
+        exit 0
+    }
+    elseif ($choice -eq "all") {
         $selectedModules = $availableModules
     }
     else {
@@ -238,7 +238,6 @@ if ($selectedModules.Count -eq 0) {
 }
 
 Write-Log "Selected $($selectedModules.Count) module(s)" -Level SUCCESS
-Write-Log "" -Level INFO
 
 ################################################################################
 # LOAD MODULES
@@ -268,8 +267,6 @@ foreach ($moduleFile in $modulesToLoad) {
     }
 }
 
-Write-Log "" -Level INFO
-
 if ($loadedModules.Count -eq 0) {
     Write-Log "ERROR: No modules loaded successfully" -Level ERROR
     Close-Logging
@@ -277,7 +274,6 @@ if ($loadedModules.Count -eq 0) {
 }
 
 Write-Log "Successfully loaded $($loadedModules.Count) module(s)" -Level SUCCESS
-Write-Log "" -Level INFO
 
 ################################################################################
 # BUILD ENVIRONMENT OBJECT
@@ -327,8 +323,6 @@ foreach ($moduleName in $loadedModules) {
         Write-Log "ERROR: Function $functionName not found" -Level ERROR
         $failedCount++
     }
-    
-    Write-Log "" -Level INFO
 }
 
 ################################################################################

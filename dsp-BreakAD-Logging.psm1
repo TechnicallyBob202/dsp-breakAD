@@ -82,6 +82,7 @@ function Write-Log {
     #>
     param(
         [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+        [AllowEmptyString()]
         [string]$Message,
         
         [ValidateSet('INFO', 'SUCCESS', 'WARNING', 'ERROR')]
