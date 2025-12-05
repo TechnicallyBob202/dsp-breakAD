@@ -15,7 +15,7 @@
 ## - Service account abuse scenarios
 ##
 ## Author: Bob Lyons (bob@semperis.com)
-## Version: 1.0.0 - Clean rebuild matching Module 1 pattern
+## Version: 1.0.0 - Clean rebuild from scratch
 ##
 ################################################################################
 
@@ -43,18 +43,20 @@ function Invoke-ModuleAccountSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 0: GET OU PATHS
+    # PHASE 0: GET OU PATHS (from Module 1 config)
     ################################################################################
     
-    Write-Log "PHASE 0: Get Organizational Unit Paths" -Level INFO
+    Write-Log "PHASE 0: Get Organizational Unit Paths & DC Info" -Level INFO
     
     $domainDN = $domain.DistinguishedName
     $rootOUName = $config['BreakAD_RootOU']
     $usersOUName = $config['BreakAD_UsersOU']
+    $dcServer = $dc.HostName
     
     $usersOUPath = "OU=$usersOUName,OU=$rootOUName,$domainDN"
     
     Write-Log "  Users OU: $usersOUPath" -Level INFO
+    Write-Log "  Domain Controller: $dcServer" -Level INFO
     Write-Log "" -Level INFO
     
     ################################################################################
@@ -83,10 +85,10 @@ function Invoke-ModuleAccountSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 2: CREATE BAD USERS
+    # PHASE 2: CREATE BAD USERS WITH WEAK PROPERTIES
     ################################################################################
     
-    Write-Log "PHASE 2: Create Bad Users" -Level INFO
+    Write-Log "PHASE 2: Create Bad Users with Weak Properties" -Level INFO
     
     $badUsers = @()
     
@@ -139,7 +141,7 @@ function Invoke-ModuleAccountSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 3: APPLY WEAK PROPERTIES
+    # PHASE 3: APPLY WEAK PROPERTIES TO USERS
     ################################################################################
     
     Write-Log "PHASE 3: Apply Weak Properties to Users" -Level INFO
@@ -172,8 +174,8 @@ function Invoke-ModuleAccountSecurity {
         
         if ($config['AccountSecurity_IncludePreAuthDisabled'] -eq 'true') {
             try {
-                Set-ADUser -Identity $user -DoesNotRequirePreauth $true -ErrorAction Stop
-                Write-LogChange -Object $user.Name -Attribute "DoesNotRequirePreAuth" -OldValue "False" -NewValue "True"
+                Set-ADUser -Identity $user -Replace @{"userAccountControl" = 4194816} -ErrorAction Stop
+                Write-LogChange -Object $user.Name -Attribute "userAccountControl" -OldValue "Default" -NewValue "DONT_REQUIRE_PREAUTH"
                 Write-Log "    [+] Pre-auth disabled (AS-REP roasting vector)" -Level SUCCESS
             }
             catch {
