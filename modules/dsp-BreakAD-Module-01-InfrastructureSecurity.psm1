@@ -81,7 +81,7 @@ function Invoke-ModuleInfrastructureSecurity {
         $domainDN = $domain.DistinguishedName
         
         for ($i = 1; $i -le $schemaAdminCount; $i++) {
-            $userName = "break-SchemaAdmin-{0:D2}" -f $i
+            $userName = "break-SchemaAdmin-" + "{0:D2}" -f $i
             
             # Check if user already exists
             $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
@@ -115,6 +115,10 @@ function Invoke-ModuleInfrastructureSecurity {
             else {
                 # Create new user
                 Write-Log "  Creating new user: $userName" -Level INFO
+                Write-Log "    [DEBUG] SamAccountName will be: '$userName'" -Level INFO
+                Write-Log "    [DEBUG] Password is set: $($null -ne $securePassword)" -Level INFO
+                Write-Log "    [DEBUG] Enabled state: $schemaAdminEnabled" -Level INFO
+                Write-Log "    [DEBUG] Description: '$schemaAdminDescription'" -Level INFO
                 
                 try {
                     New-ADUser `
@@ -196,7 +200,7 @@ function Invoke-ModuleInfrastructureSecurity {
         $domainDN = $domain.DistinguishedName
         
         for ($i = 1; $i -le $enterpriseAdminCount; $i++) {
-            $userName = "break-EnterpriseAdmin-{0:D2}" -f $i
+            $userName = "break-EnterpriseAdmin-" + "{0:D2}" -f $i
             
             # Check if user already exists
             $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
