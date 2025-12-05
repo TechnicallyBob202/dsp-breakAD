@@ -191,29 +191,10 @@ function Invoke-ModuleAccountSecurity {
             }
 
             # IOE 9: Accounts with Old Passwords (90+ days)
-            If ($Environment.Config.AccountSecurity_OldPasswords -eq $true) {
+            # NOTE: Skipped - pwdLastSet cannot be set via ADSI after account creation
+            If ($false) {
                 Write-Log "Enabling IOE: User accounts with old passwords (90+ days)" -Level INFO
-                
-                Try {
-                    For ($i = 1; $i -le 1; $i++) {
-                        $user = New-BreakAccount -SamAccountName "break-opwd$i" `
-                            -DisplayName "Break: Old Password $i" `
-                            -Password $(-join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32))
-                        
-                        $DaysAgo = 95
-                        $TargetDate = [datetime]::Now.AddDays(-$DaysAgo)
-                        $filetime = $TargetDate.ToFileTime()
-                        
-                        $ldapPath = "LDAP://$($user.DistinguishedName)"
-                        $adsiUser = [ADSI]$ldapPath
-                        $adsiUser.Put("pwdLastSet", $filetime)
-                        $adsiUser.SetInfo()
-                        
-                        Write-Log "PASS: Created $($user.SamAccountName)" -Level SUCCESS
-                    }
-                } Catch {
-                    Write-Log "FAIL: $_" -Level ERROR
-                }
+                Write-Log "SKIP: pwdLastSet modification disabled" -Level INFO
             }
 
             # IOE 10: Privileged Users that are Disabled
@@ -272,29 +253,10 @@ function Invoke-ModuleAccountSecurity {
             }
 
             # IOE 13: Smart Card Auth with Old Password
-            If ($Environment.Config.AccountSecurity_SmartCardOldPassword -eq $true) {
+            # NOTE: Skipped - pwdLastSet cannot be set via ADSI after account creation
+            If ($false) {
                 Write-Log "Enabling IOE: Smart Card with old password" -Level INFO
-                
-                Try {
-                    $user = New-BreakAccount -SamAccountName "break-scard1" `
-                        -DisplayName "Break: Smart Card Old Password" `
-                        -Password $(-join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32))
-                    
-                    Set-ADUser -Identity $user -SmartcardLogonRequired $true
-                    
-                    $DaysAgo = 100
-                    $TargetDate = [datetime]::Now.AddDays(-$DaysAgo)
-                    $filetime = $TargetDate.ToFileTime()
-                    
-                    $ldapPath = "LDAP://$($user.DistinguishedName)"
-                    $adsiUser = [ADSI]$ldapPath
-                    $adsiUser.Put("pwdLastSet", $filetime)
-                    $adsiUser.SetInfo()
-                    
-                    Write-Log "PASS: Created $($user.SamAccountName)" -Level SUCCESS
-                } Catch {
-                    Write-Log "FAIL: $_" -Level ERROR
-                }
+                Write-Log "SKIP: pwdLastSet modification disabled" -Level INFO
             }
 
             Write-Log "Successfully completed Module 2: Account Security" -Level SUCCESS
