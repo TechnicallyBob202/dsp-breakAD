@@ -1,0 +1,471 @@
+Bad AD Configs - Group Policy Security
+REMARK: !!! DO NOT EXECUTE IN ANY PRODUCTION ENVIRONMENT !!!
+REMARK: !!! ALL THIS WILL WEAKEN THE SECURITY POSTURE OF YOUR AD !!!
+REMARK: !!! SOME ACTIONS MIGHT EVEN BREAK YOUR DC(s)/AD !!!
+REMARK: Execute The Code With The Built-In Domain/Enterprise Administrator Account!!!
+REMARK: Execute The Code On A RWDC Of The Corresponding AD Domain!!!
+Import-Module ActiveDirectory
+
+$adDomain = Get-ADDomain -Current LocalComputer
+$adDomainDN = $adDomain.DistinguishedName
+$adDomainFQDN = $adDomain.DNSRoot
+$adDomainNetBIOS = $adDomain.NetBIOSName
+$adDomainDeletedObjectsContainerDN = $adDomain.DeletedObjectsContainer
+$adDomainDomainControllersContainerDN = $adDomain.DomainControllersContainer
+$adDomainSID = $adDomain.DomainSID.Value
+$adDomainRwdcPdcFsmoFQDN = $adDomain.PDCEmulator
+$adDomainRwdcFQDN = (Get-ADDomainController -DomainName $adDomainFQDN -Discover).HostName[0]
+
+$adForest = Get-ADForest -Current LocalComputer
+$adForestRootDomainFQDN = $adForest.RootDomain
+$adForestRootDomain = Get-ADDomain $adForestRootDomainFQDN
+$adForestRootDomainNetBIOS = $adForestRootDomain.NetBIOSName
+$adForestRootDomainSID = $adForestRootDomain.DomainSID.Value
+$adForestRwdcSchFsmoFQDN = $adForest.SchemaMaster
+$adForestRwdcDnmFsmoFQDN = $adForest.DomainNamingMaster
+$adForestPartitionsContainerDN = $adForest.PartitionsContainer
+$adForestConfigNCDN = $adForestPartitionsContainerDN.Replace("CN=Partitions,","")
+$adForestSchemaNCDN = "CN=Schema," + $adForestConfigNCDN
+
+$OU = "OU=TEST,$adDomainDN"
+#################################################################################
+# Changes To The Default Domain Policy And/Or The Default Domain Controllers Policy In The Last 7 Days
+
+#REMARK: This Requires PowerShell Module From Group Policy Management Console
+
+Invoke-Command -ArgumentList $adDomainDN -ScriptBlock{
+	Param(
+		$adDomainDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+	
+	# {31B2F340-016D-11D2-945F-00C04FB984F9} Default Domain GPO
+	$defaultDomainGPOObjectDN = "CN={31B2F340-016D-11D2-945F-00C04FB984F9},CN=Policies,CN=System," + $adDomainDN
+	# {6AC1786C-016F-11D2-945F-00C04FB984F9} Default Domain Controllers GPO
+	$defaultDomainControllersGPOObjectDN = "CN={6AC1786C-016F-11D2-945F-00C04FB984F9},CN=Policies,CN=System," + $adDomainDN
+	Write-Host "Object DN: $defaultDomainGPOObjectDN" -ForeGroundColor Magenta
+	Try{
+		Set-GPPrefRegistryValue -Guid 31B2F340-016D-11D2-945F-00C04FB984F9 -Context computer -Action Create -Key "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\ExampleKey1\ExampleKey2"
+		Write-Host " > Default Domain GPO Has Been Updated..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	Write-Host "Object DN: $defaultDomainControllersGPOObjectDN" -ForeGroundColor Magenta
+	Try{
+		Set-GPPrefRegistryValue -Guid 6AC1786C-016F-11D2-945F-00C04FB984F9 -Context computer -Action Create -Key "HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\ExampleKey1\ExampleKey2"
+		Write-Host " > Default Domain Controllers GPO Has Been Updated..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+}
+#################################################################################
+# Reversible Encrypted Password Found In GPOs
+
+#REMARK: This Requires PowerShell Module From Group Policy Management Console
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainFQDN,$adDomainDomainControllersContainerDN,$adDomainRwdcPdcFsmoFQDN,$OU -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainFQDN,
+		$adDomainDomainControllersContainerDN,
+		$adDomainRwdcPdcFsmoFQDN,
+		$OU
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$dcName = (Get-WmiObject -Class Win32_ComputerSystem).Name
+	$sysvolSubscriptionDN = "CN=SYSVOL Subscription,CN=Domain System Volume,CN=DFSR-LocalSettings,CN=" + $dcName + "," + $adDomainDomainControllersContainerDN
+	$adsiSearcher = [adsisearcher]"(distinguishedName=$sysvolSubscriptionDN)"
+	$adsiSearcher.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$sysvolSubscription = $adsiSearcher.FindOne()
+	$sysvolMainPath = $sysvolSubscription.Properties.'msdfsr-rootpath'
+	Write-Host "Object DN: $adDomainDN" -ForeGroundColor Magenta
+	Try{
+		$newGPO1 = New-GPO -name GPO_Stored_Reversible_Encrypted-Creds_Domain -Server $adDomainRwdcPdcFsmoFQDN | New-GPLink -target $adDomainDN -Server $adDomainRwdcPdcFsmoFQDN
+		Write-Host " > GPO '$($newGPO1.DisplayName)' Created And Linked To '$adDomainDN'..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	$gpoDN1 = "CN={$(($newGPO1.GpoId.Guid).ToUpper())},CN=Policies,CN=System,$adDomainDN"
+	Write-Host "Object DN: $gpoDN1" -ForeGroundColor Magenta
+	$gpo1 = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $gpoDN1)
+	Try{
+		$gpo1.Put("gPCMachineExtensionNames", "[{00000000-0000-0000-0000-000000000000}{79F92669-4224-476C-9C5C-6EFB4D87DF4A}][{17D89FEC-5C44-4972-B12D-241CAEF74509}{79F92669-4224-476C-9C5C-6EFB4D87DF4A}]")
+		$gpo1.SetInfo()
+		Write-Host " > Added The Required GPO Extensions To The GPO In AD..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	$gpoSysvolPath1 = $gpo1.gPCFileSysPath[0]
+	Write-Host "Object Path: $gpoSysvolPath1" -ForeGroundColor Magenta
+	Try{
+		$gpoLocalSysvolPath1 = $gpoSysvolPath1.Replace($("\\$adDomainFQDN\SysVol\$adDomainFQDN"),$sysvolMainPath)
+		If (!(Test-Path "$gpoLocalSysvolPath1\Machine\Preferences\Groups")) {
+			New-Item "$gpoLocalSysvolPath1\Machine\Preferences\Groups" -ItemType Directory | Out-Null
+		}	
+		"<?xml version=`"1.0`" encoding=`"utf-8`"?>" | Out-File "$gpoLocalSysvolPath1\Machine\Preferences\Groups\Groups.xml"
+		"<Groups clsid=`"{3125E937-EB16-4b4c-9934-544FC6D24D26}`">" | Out-File "$gpoLocalSysvolPath1\Machine\Preferences\Groups\Groups.xml" -Append
+		"<User clsid=`"{DF5F1855-51E5-4d24-8B1A-D9BDE98BA1D1}`" name=`"Administrator (built-in)`" image=`"2`" changed=`"$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")`" uid=`"{C46B6AB3-04AC-4873-A487-870F29548738}`" userContext=`"0`" removePolicy=`"0`">" | Out-File "$gpoLocalSysvolPath1\Machine\Preferences\Groups\Groups.xml" -Append
+		"<Properties action=`"U`" newName=`"bla_admin_user`" fullName=`"bla_admin_user`" description=`"bla_admin_user`" cpassword=`"awRtQIE+ic21Ut9XtLYc1/pc7jGytKTHUmSm6TOR7sE`" changeLogon=`"0`" noChange=`"0`" neverExpires=`"0`" acctDisabled=`"0`" subAuthority=`"RID_ADMIN`" userName=`"Administrator (built-in)`"/>" | Out-File "$gpoLocalSysvolPath1\Machine\Preferences\Groups\Groups.xml" -Append
+		"</User>" | Out-File "$gpoLocalSysvolPath1\Machine\Preferences\Groups\Groups.xml" -Append
+		"</Groups>" | Out-File "$gpoLocalSysvolPath1\Machine\Preferences\Groups\Groups.xml" -Append
+		Write-Host " > Populated The Required XML For The GPO On The SYSVOL..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	Write-Host "Object DN: $OU" -ForeGroundColor Magenta
+	Try{
+		$newGPO2 = New-GPO -name GPO_Stored_Reversible_Encrypted-Creds_OU -Server $adDomainRwdcPdcFsmoFQDN | New-GPLink -target $OU -Server $adDomainRwdcPdcFsmoFQDN
+		Write-Host " > GPO '$($newGPO2.DisplayName)' Created And Linked To '$OU'..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	$gpoDN2 = "CN={$(($newGPO2.GpoId.Guid).ToUpper())},CN=Policies,CN=System,$adDomainDN"
+	Write-Host "Object DN: $gpoDN2" -ForeGroundColor Magenta
+	$gpo2 = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $gpoDN2)
+	Try{
+		$gpo2.Put("gPCMachineExtensionNames", "[{00000000-0000-0000-0000-000000000000}{79F92669-4224-476C-9C5C-6EFB4D87DF4A}][{17D89FEC-5C44-4972-B12D-241CAEF74509}{79F92669-4224-476C-9C5C-6EFB4D87DF4A}]")
+		$gpo2.SetInfo()
+		Write-Host " > Added The Required GPO Extensions To The GPO In AD..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	$gpoSysvolPath2 = $gpo2.gPCFileSysPath[0]
+	Write-Host "Object Path: $gpoSysvolPath2" -ForeGroundColor Magenta
+	Try{
+		$gpoLocalSysvolPath2 = $gpoSysvolPath2.Replace($("\\$adDomainFQDN\SysVol\$adDomainFQDN"),$sysvolMainPath)
+		If (!(Test-Path "$gpoLocalSysvolPath2\Machine\Preferences\Groups")) {
+			New-Item "$gpoLocalSysvolPath2\Machine\Preferences\Groups" -ItemType Directory | Out-Null
+		}	
+		"<?xml version=`"1.0`" encoding=`"utf-8`"?>" | Out-File "$gpoLocalSysvolPath2\Machine\Preferences\Groups\Groups.xml"
+		"<Groups clsid=`"{3125E937-EB16-4b4c-9934-544FC6D24D26}`">" | Out-File "$gpoLocalSysvolPath2\Machine\Preferences\Groups\Groups.xml" -Append
+		"<User clsid=`"{DF5F1855-51E5-4d24-8B1A-D9BDE98BA1D1}`" name=`"Administrator (built-in)`" image=`"2`" changed=`"$(Get-Date -Format "yyyy-MM-dd HH:mm:ss")`" uid=`"{C46B6AB3-04AC-4873-A487-870F29548738}`" userContext=`"0`" removePolicy=`"0`">" | Out-File "$gpoLocalSysvolPath2\Machine\Preferences\Groups\Groups.xml" -Append
+		"<Properties action=`"U`" newName=`"bla_admin_user`" fullName=`"bla_admin_user`" description=`"bla_admin_user`" cpassword=`"awRtQIE+ic21Ut9XtLYc1/pc7jGytKTHUmSm6TOR7sE`" changeLogon=`"0`" noChange=`"0`" neverExpires=`"0`" acctDisabled=`"0`" subAuthority=`"RID_ADMIN`" userName=`"Administrator (built-in)`"/>" | Out-File "$gpoLocalSysvolPath2\Machine\Preferences\Groups\Groups.xml" -Append
+		"</User>" | Out-File "$gpoLocalSysvolPath2\Machine\Preferences\Groups\Groups.xml" -Append
+		"</Groups>" | Out-File "$gpoLocalSysvolPath2\Machine\Preferences\Groups\Groups.xml" -Append
+		Write-Host " > Populated The Required XML For The GPO On The SYSVOL..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+}
+#################################################################################
+# Add Executables To SYSVOL
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainDomainControllersContainerDN,$adDomainRwdcPdcFsmoFQDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainDomainControllersContainerDN,
+		$adDomainRwdcPdcFsmoFQDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+	
+	$dcName = (Get-WmiObject -Class Win32_ComputerSystem).Name
+	$sysvolSubscriptionDN = "CN=SYSVOL Subscription,CN=Domain System Volume,CN=DFSR-LocalSettings,CN=" + $dcName + "," + $adDomainDomainControllersContainerDN
+	$adsiSearcher = [adsisearcher]"(distinguishedName=$sysvolSubscriptionDN)"
+	$adsiSearcher.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$sysvolSubscription = $adsiSearcher.FindOne()
+	$sysvolMainPath = $sysvolSubscription.Properties.'msdfsr-rootpath'
+	Write-Host "SYSVOL Main Path: $sysvolMainPath" -ForeGroundColor Magenta
+	(Get-ChildItem -Path $sysvolMainPath -Directory -Depth 1).FullName | ForEach-Object{
+		Try{
+			Write-Host " > Adding Executables To Path '$($_)'..." -ForeGroundColor Cyan
+			"TEST.EXE" | Out-File $($($_) + "\TEST.EXE")
+			"TEST.PS1" | Out-File $($($_) + "\TEST.PS1")
+			"TEST.VBS" | Out-File $($($_) + "\TEST.VBS")
+			"TEST.CMD" | Out-File $($($_) + "\TEST.CMD")
+			"TEST.BAT" | Out-File $($($_) + "\TEST.BAT")
+			"TEST.BIN" | Out-File $($($_) + "\TEST.BIN")
+			"TEST.COM" | Out-File $($($_) + "\TEST.COM")
+			"TEST.CPL" | Out-File $($($_) + "\TEST.CPL")
+			"TEST.DRV" | Out-File $($($_) + "\TEST.DRV")
+			"TEST.GADGET" | Out-File $($($_) + "\TEST.GADGET")
+			"TEST.INF1" | Out-File $($($_) + "\TEST.INF1")
+			"TEST.INS" | Out-File $($($_) + "\TEST.INS")
+			"TEST.INX" | Out-File $($($_) + "\TEST.INX")
+			"TEST.ISU" | Out-File $($($_) + "\TEST.ISU")
+			"TEST.JOB" | Out-File $($($_) + "\TEST.JOB")
+			"TEST.JSE" | Out-File $($($_) + "\TEST.JSE")
+			"TEST.LNK" | Out-File $($($_) + "\TEST.LNK")
+			"TEST.MSC" | Out-File $($($_) + "\TEST.MSC")
+			"TEST.MSI" | Out-File $($($_) + "\TEST.MSI")
+			"TEST.MSP" | Out-File $($($_) + "\TEST.MSP")
+			"TEST.MST" | Out-File $($($_) + "\TEST.MST")
+			"TEST.PAF" | Out-File $($($_) + "\TEST.PAF")
+			"TEST.PIF" | Out-File $($($_) + "\TEST.PIF")
+			"TEST.PSM" | Out-File $($($_) + "\TEST.PSM")
+			"TEST.REG" | Out-File $($($_) + "\TEST.REG")
+			"TEST.RGS" | Out-File $($($_) + "\TEST.RGS")
+			"TEST.SCT" | Out-File $($($_) + "\TEST.SCT")
+			"TEST.SHB" | Out-File $($($_) + "\TEST.SHB")
+			"TEST.SHS" | Out-File $($($_) + "\TEST.SHS")
+			"TEST.U3P" | Out-File $($($_) + "\TEST.U3P")
+			"TEST.VB" | Out-File $($($_) + "\TEST.VB")
+			"TEST.VBE" | Out-File $($($_) + "\TEST.VBE")
+			"TEST.VBS" | Out-File $($($_) + "\TEST.VBS")
+			"TEST.VBSCRIPT" | Out-File $($($_) + "\TEST.VBSCRIPT")
+			"TEST.WS" | Out-File $($($_) + "\TEST.WS")
+			"TEST.WSF" | Out-File $($($_) + "\TEST.WSF")
+			"TEST.WSF" | Out-File $($($_) + "\TEST.WSF")
+		} Catch {
+			Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+			Write-Host ""
+			Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+		}
+	}
+	Write-Host ""
+}
+#################################################################################
+# GPO Linking Delegation At Domain Level
+# GPO Linking Delegation At Domain Controllers OU Level
+# GPO Linking Delegation At AD Sites Level
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainNetBIOS,$adDomainDomainControllersContainerDN,$adDomainRwdcPdcFsmoFQDN,$adForestRootDomainFQDN,$adForestRwdcDnmFsmoFQDN,$adForestConfigNCDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainNetBIOS,
+		$adDomainDomainControllersContainerDN,
+		$adDomainRwdcPdcFsmoFQDN,
+		$adForestRootDomainFQDN,
+		$adForestRwdcDnmFsmoFQDN,
+		$adForestConfigNCDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+	
+	$schemaIDGUIDScopedAttribute = "f30e3bbe-9ff0-11d1-b603-0000f80367c1" # Schema ID Guid For gpLink attributeClass
+	$schemaIDGUIDAllProperties = "00000000-0000-0000-0000-000000000000" # Schema ID Guid For All Properties
+	$schemaIDGUIDScopedObject = "bf967ab3-0de6-11d0-a285-00aa003049e2" # Schema ID Guid For Site ObjectClass
+
+	$badAct0rSamAccountName1 = "BdActr" + $adDomainNetBIOS + "110"
+	$adsiSearcher1 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName1))"
+	$adsiSearcher1.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject1 = $adsiSearcher1.FindOne()
+	$badAct0rSidStringFormat1 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject1.Properties.objectsid),0)).Value
+	$badAct0rSecurityIdentifier1 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat1
+	$badAct0rIdentityReference1 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier1
+	$badAct0rSamAccountName2 = "BdActr" + $adDomainNetBIOS + "111"
+	$adsiSearcher2 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName2))"
+	$adsiSearcher2.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject2 = $adsiSearcher2.FindOne()
+	$badAct0rSidStringFormat2 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject2.Properties.objectsid),0)).Value
+	$badAct0rSecurityIdentifier2 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat2
+	$badAct0rIdentityReference2 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier2
+	$badAct0rSamAccountName3 = "BdActr" + $adDomainNetBIOS + "112"
+	$adsiSearcher3 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName3))"
+	$adsiSearcher3.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject3 = $adsiSearcher3.FindOne()
+	$badAct0rSidStringFormat3 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject3.Properties.objectsid),0)).Value
+	$badAct0rSecurityIdentifier3 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat3
+	$badAct0rIdentityReference3 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier3
+	$badAct0rSamAccountName4 = "BdActr" + $adDomainNetBIOS + "113"
+	$adsiSearcher4 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName4))"
+	$adsiSearcher4.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject4 = $adsiSearcher4.FindOne()
+	$badAct0rSidStringFormat4 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject4.Properties.objectsid),0)).Value
+	$badAct0rSecurityIdentifier4 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat4
+	$badAct0rIdentityReference4 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier4
+	$badAct0rSamAccountName5 = "BdActr" + $adDomainNetBIOS + "114"
+	$adsiSearcher5 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName5))"
+	$adsiSearcher5.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject5 = $adsiSearcher5.FindOne()
+	$badAct0rSidStringFormat5 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject5.Properties.objectsid),0)).Value
+	$badAct0rSecurityIdentifier5 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat5
+	$badAct0rIdentityReference5 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier5
+	$domain = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+	Write-Host "Object DN: $adDomainDN" -ForeGroundColor Magenta
+	Try{
+		$aceRight1 = [System.DirectoryServices.ActiveDirectoryRights] "GenericAll" # Full Control
+		$aceRight2 = [System.DirectoryServices.ActiveDirectoryRights] "GenericWrite" # Generic Write On All Properties
+		$aceRight3 = [System.DirectoryServices.ActiveDirectoryRights] "WriteProperty" # Write Property On Specific Attribute(s)
+		$aceRight4 = [System.DirectoryServices.ActiveDirectoryRights] "WriteDACL" # Write DACL
+		$aceRight5 = [System.DirectoryServices.ActiveDirectoryRights] "WriteOwner" # Write Owner
+		$aceType = [System.Security.AccessControl.AccessControlType] "Allow"
+		$aceInheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None" # This Object Only
+		$ace1 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference1,$aceRight1,$aceType,$aceInheritanceType # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace1)
+		$ace2 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference2,$aceRight2,$aceType,$schemaIDGUIDAllProperties,$aceInheritanceType # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace2)		
+		$ace3 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference3,$aceRight3,$aceType,$schemaIDGUIDScopedAttribute,$aceInheritanceType # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace3)
+		$ace4 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference4,$aceRight4,$aceType,$aceInheritanceType # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace4)	
+		$ace5 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference5,$aceRight5,$aceType,$aceInheritanceType # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace5)	
+		$domain.psbase.commitchanges()
+		Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName1' Full Control Permissions..." -ForeGroundColor Green
+		Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName2' Write All Properties Permissions..." -ForeGroundColor Green
+		Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName3' Write gpLink Property Permissions..." -ForeGroundColor Green
+		Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName4' Write DACL Permissions..." -ForeGroundColor Green
+		Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName5' Write Owner Permissions..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	$domainControllersOU = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDomainControllersContainerDN)
+	Write-Host "Object DN: $adDomainDomainControllersContainerDN" -ForeGroundColor Magenta
+	Try{
+		$aceRight1 = [System.DirectoryServices.ActiveDirectoryRights] "GenericAll" # Full Control
+		$aceRight2 = [System.DirectoryServices.ActiveDirectoryRights] "GenericWrite" # Generic Write On All Properties
+		$aceRight3 = [System.DirectoryServices.ActiveDirectoryRights] "WriteProperty" # Write Property On Specific Attribute(s)
+		$aceRight4 = [System.DirectoryServices.ActiveDirectoryRights] "WriteDACL" # Write DACL
+		$aceRight5 = [System.DirectoryServices.ActiveDirectoryRights] "WriteOwner" # Write Owner
+		$aceType = [System.Security.AccessControl.AccessControlType] "Allow"
+		$aceInheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None" # This Object Only
+		$ace1 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference1,$aceRight1,$aceType,$aceInheritanceType # Define The ACE To Set
+		$domainControllersOU.psbase.objectSecurity.AddAccessRule($ace1)
+		$ace2 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference2,$aceRight2,$aceType,$schemaIDGUIDAllProperties,$aceInheritanceType # Define The ACE To Set
+		$domainControllersOU.psbase.objectSecurity.AddAccessRule($ace2)		
+		$ace3 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference3,$aceRight3,$aceType,$schemaIDGUIDScopedAttribute,$aceInheritanceType # Define The ACE To Set
+		$domainControllersOU.psbase.objectSecurity.AddAccessRule($ace3)
+		$ace4 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference4,$aceRight4,$aceType,$aceInheritanceType # Define The ACE To Set
+		$domainControllersOU.psbase.objectSecurity.AddAccessRule($ace4)	
+		$ace5 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference5,$aceRight5,$aceType,$aceInheritanceType # Define The ACE To Set
+		$domainControllersOU.psbase.objectSecurity.AddAccessRule($ace5)	
+		$domainControllersOU.psbase.commitchanges()
+		Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName1' Full Control Permissions..." -ForeGroundColor Green
+		Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName2' Write All Properties Permissions..." -ForeGroundColor Green
+		Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName3' Write gpLink Property Permissions..." -ForeGroundColor Green
+		Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName4' Write DACL Permissions..." -ForeGroundColor Green
+		Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName5' Write Owner Permissions..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	If ($adDomainFQDN -eq $adForestRootDomainFQDN) {
+		$adSitesContainer = [ADSI]("LDAP://" + $adForestRwdcDnmFsmoFQDN + "/" + $("CN=Sites," + $adForestConfigNCDN))
+		Write-Host "Object DN: $("CN=Sites," + $adForestConfigNCDN)" -ForeGroundColor Magenta
+		Try{
+			$aceRight1 = [System.DirectoryServices.ActiveDirectoryRights] "GenericAll" # Full Control
+			$aceRight2 = [System.DirectoryServices.ActiveDirectoryRights] "GenericWrite" # Generic Write On All Properties
+			$aceRight3 = [System.DirectoryServices.ActiveDirectoryRights] "WriteProperty" # Write Property On Specific Attribute(s)
+			$aceRight4 = [System.DirectoryServices.ActiveDirectoryRights] "WriteDACL" # Write DACL
+			$aceRight5 = [System.DirectoryServices.ActiveDirectoryRights] "WriteOwner" # Write Owner
+			$aceType = [System.Security.AccessControl.AccessControlType] "Allow"
+			$aceInheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "Descendents" # Descendant Objects
+			$ace1 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference1,$aceRight1,$aceType,$aceInheritanceType,$schemaIDGUIDScopedObject # Define The ACE To Set
+			$adSitesContainer.psbase.objectSecurity.AddAccessRule($ace1)
+			$ace2 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference2,$aceRight2,$aceType,$schemaIDGUIDAllProperties,$aceInheritanceType,$schemaIDGUIDScopedObject # Define The ACE To Set
+			$adSitesContainer.psbase.objectSecurity.AddAccessRule($ace2)		
+			$ace3 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference3,$aceRight3,$aceType,$schemaIDGUIDScopedAttribute,$aceInheritanceType,$schemaIDGUIDScopedObject # Define The ACE To Set
+			$adSitesContainer.psbase.objectSecurity.AddAccessRule($ace3)
+			$ace4 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference4,$aceRight4,$aceType,$aceInheritanceType,$schemaIDGUIDScopedObject # Define The ACE To Set
+			$adSitesContainer.psbase.objectSecurity.AddAccessRule($ace4)	
+			$ace5 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference5,$aceRight5,$aceType,$aceInheritanceType,$schemaIDGUIDScopedObject # Define The ACE To Set
+			$adSitesContainer.psbase.objectSecurity.AddAccessRule($ace5)	
+			$adSitesContainer.psbase.commitchanges()
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName1' Full Control Permissions..." -ForeGroundColor Green
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName2' Write All Properties Permissions..." -ForeGroundColor Green
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName3' Write gpLink Property Permissions..." -ForeGroundColor Green
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName4' Write DACL Permissions..." -ForeGroundColor Green
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName5' Write Owner Permissions..." -ForeGroundColor Green
+		} Catch {
+			Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+			Write-Host ""
+			Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+		}
+		Write-Host ""
+	}
+}

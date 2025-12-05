@@ -1,0 +1,80 @@
+Bad AD Configs - Accounts Bad Actors
+REMARK: !!! DO NOT EXECUTE IN ANY PRODUCTION ENVIRONMENT !!!
+REMARK: !!! ALL THIS WILL WEAKEN THE SECURITY POSTURE OF YOUR AD !!!
+REMARK: !!! SOME ACTIONS MIGHT EVEN BREAK YOUR DC(s)/AD !!!
+REMARK: Execute The Code With The Built-In Domain/Enterprise Administrator Account!!!
+REMARK: Execute The Code On A RWDC Of The Corresponding AD Domain!!!
+Import-Module ActiveDirectory
+
+$adDomain = Get-ADDomain -Current LocalComputer
+$adDomainDN = $adDomain.DistinguishedName
+$adDomainFQDN = $adDomain.DNSRoot
+$adDomainNetBIOS = $adDomain.NetBIOSName
+$adDomainDeletedObjectsContainerDN = $adDomain.DeletedObjectsContainer
+$adDomainDomainControllersContainerDN = $adDomain.DomainControllersContainer
+$adDomainSID = $adDomain.DomainSID.Value
+$adDomainRwdcPdcFsmoFQDN = $adDomain.PDCEmulator
+$adDomainRwdcFQDN = (Get-ADDomainController -DomainName $adDomainFQDN -Discover).HostName[0]
+$OU = "OU=TEST,$adDomainDN"
+If ((Get-ADObject -SearchBase $adDomainDN -LDAPFilter "(distinguishedName=$OU)") -eq $null) {
+	New-ADOrganizationalUnit -Name $($OU.Split(",")[0].Replace("OU=","")) -Path $adDomainDN
+}
+
+$adForest = Get-ADForest -Current LocalComputer
+$adForestRootDomainFQDN = $adForest.RootDomain
+$adForestRootDomain = Get-ADDomain $adForestRootDomainFQDN
+$adForestRootDomainNetBIOS = $adForestRootDomain.NetBIOSName
+$adForestRootDomainSID = $adForestRootDomain.DomainSID.Value
+$adForestRwdcSchFsmoFQDN = $adForest.SchemaMaster
+$adForestRwdcDnmFsmoFQDN = $adForest.DomainNamingMaster
+$adForestPartitionsContainerDN = $adForest.PartitionsContainer
+$adForestConfigNCDN = $adForestPartitionsContainerDN.Replace("CN=Partitions,","")
+$adForestSchemaNCDN = "CN=Schema," + $adForestConfigNCDN
+#################################################################################
+# Accounts Bad Actors
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainFQDN,$adDomainNetBIOS,$adDomainRwdcFQDN,$OU -ScriptBlock {
+	Param (
+		$adDomainDN,
+		$adDomainFQDN,
+		$adDomainNetBIOS,
+		$adDomainRwdcFQDN,
+		$OU
+	)
+  
+	Clear-Host
+  
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+  
+	0..200 | ForEach-Object{
+		Write-Host "Creating User Account: Bad Act0r $adDomainFQDN $($_)" -ForegroundColor Magenta
+		$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 100 -Maximum 999)
+		$password = $(-join (33..126 | ForEach-Object {[char]$_} | Get-Random -Count 32))
+		New-ADUser -Path $OU -Enabled $true -Name $("Bad Act0r " + $adDomainFQDN + " " + $($_)) -GivenName "Bad" -Surname $("Act0r " + $adDomainFQDN + " " + $($_)) -DisplayName $("Bad Act0r " + $adDomainFQDN + " " + $($_)) -SamAccountName $("BdActr" + $adDomainNetBIOS + $($_)) -UserPrincipalName "Bad.Act0r.$adDomainFQDN.$($_)@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $password -AsPlainText -Force) -Server $adDomainRwdcFQDN
+		If ($($_).ToString().EndsWith("1") -eq $true) {
+			Set-ADUser -Identity $("BdActr" + $adDomainNetBIOS + $($_)) -Description $("Bad Act0r " + $adDomainFQDN + " " + $($_) + " Password = " + $password) -Add @{"msDS-AllowedToDelegateTo" = @("MSSQLSvc/$randomNr:1433", "MSSQLSvc/$randomNr.$adDomainFQDN:1433") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+		} ElseIf ($($_).ToString().EndsWith("2") -eq $true) {
+			Set-ADUser -Identity $("BdActr" + $adDomainNetBIOS + $($_)) -Description $("Bad Act0r " + $adDomainFQDN + " " + $($_) + " Password = " + $password) -Add @{"msDS-AllowedToDelegateTo" = @("HOST/$adDomainRwdcPdcFsmoFQDN", "GC/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "ldap/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "RestrictedKrbHost/$adDomainRwdcPdcFsmoFQDN") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+		} Else {
+			Set-ADUser -Identity $("BdActr" + $adDomainNetBIOS + $($_)) -Description $("Bad Act0r " + $adDomainFQDN + " " + $($_) + " Password = " + $password) -Server $adDomainRwdcFQDN
+		}
+		Set-ADAccountControl -Identity $("BdActr" + $adDomainNetBIOS + $($_)) -PasswordNeverExpires $true -Server $adDomainRwdcFQDN
+		Write-Host ""
+	}
+}

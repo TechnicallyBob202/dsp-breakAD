@@ -1,0 +1,349 @@
+Bad AD Configs - Kerberos Security
+REMARK: !!! DO NOT EXECUTE IN ANY PRODUCTION ENVIRONMENT !!!
+REMARK: !!! ALL THIS WILL WEAKEN THE SECURITY POSTURE OF YOUR AD !!!
+REMARK: !!! SOME ACTIONS MIGHT EVEN BREAK YOUR DC(s)/AD !!!
+REMARK: Execute The Code With The Built-In Domain/Enterprise Administrator Account!!!
+REMARK: Execute The Code On A RWDC Of The Corresponding AD Domain!!!
+Import-Module ActiveDirectory
+
+$adDomain = Get-ADDomain -Current LocalComputer
+$adDomainDN = $adDomain.DistinguishedName
+$adDomainFQDN = $adDomain.DNSRoot
+$adDomainNetBIOS = $adDomain.NetBIOSName
+$adDomainDeletedObjectsContainerDN = $adDomain.DeletedObjectsContainer
+$adDomainDomainControllersContainerDN = $adDomain.DomainControllersContainer
+$adDomainSID = $adDomain.DomainSID.Value
+$adDomainRwdcPdcFsmoFQDN = $adDomain.PDCEmulator
+$adDomainRwdcFQDN = (Get-ADDomainController -DomainName $adDomainFQDN -Discover).HostName[0]
+
+$adForest = Get-ADForest -Current LocalComputer
+$adForestRootDomainFQDN = $adForest.RootDomain
+$adForestRootDomain = Get-ADDomain $adForestRootDomainFQDN
+$adForestRootDomainNetBIOS = $adForestRootDomain.NetBIOSName
+$adForestRootDomainSID = $adForestRootDomain.DomainSID.Value
+$adForestRwdcSchFsmoFQDN = $adForest.SchemaMaster
+$adForestRwdcDnmFsmoFQDN = $adForest.DomainNamingMaster
+$adForestPartitionsContainerDN = $adForest.PartitionsContainer
+$adForestConfigNCDN = $adForestPartitionsContainerDN.Replace("CN=Partitions,","")
+$adForestSchemaNCDN = "CN=Schema," + $adForestConfigNCDN
+
+$OU = "OU=TEST,$adDomainDN"
+#################################################################################
+# Computer, User And/Or gMSA Accounts With UNconstrained Delegation
+
+REMARK: Executing the code in 'Bad AD Configs - Accounts With Bad Account Security' actually does this
+#################################################################################
+# Kerberos KrbTgt Account With Old Password (> 180 Days)
+
+REMARK: Needs to be done ahead of time and then wait and not changing it for quite some time
+#################################################################################
+# Computer, User And/Or gMSA Accounts With Constrained Delegation
+
+REMARK: Executing the code in 'Bad AD Configs - Accounts With Bad Account Security' actually does this
+#################################################################################
+# Principals With Constrained Delegation Enabled For A DC Service
+
+REMARK: Executing the code in 'Bad AD Configs - Accounts With Bad Account Security' actually does this
+#################################################################################
+# Kerberos Protocol Transition Delegation Configured
+
+REMARK: Executing the code in 'Bad AD Configs - Accounts With Bad Account Security' actually does this
+#################################################################################
+# Principals With Constrained Delegation Using Protocol Transition Enabled For A DC Service
+
+REMARK: Executing the code in 'Bad AD Configs - Accounts With Bad Account Security' actually does this
+#################################################################################
+# Users With Service Principal Names Configured
+
+REMARK: Executing the code in 'Bad AD Configs - Accounts With Bad Account Security' actually does this
+#################################################################################
+# Privileged Users With Service Principal Names Configured
+
+REMARK: Executing the code in 'Bad AD Configs - Accounts With Bad Account Security' actually does this
+#################################################################################
+# Account Take Over Through Resource Based Constrained Delegation (RBCD) 
+
+REMARK: Executing the code in 'Bad AD Configs - Accounts With Bad Account Security' actually does this
+#################################################################################
+# DC Account With Resource Based Constrained Delegation (RBCD) Enabled/Configured
+# KrbTgt Account With Resource Based Constrained Delegation (RBCD) Enabled/Configured 
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainNetBIOS,$adDomainDomainControllersContainerDN,$adDomainRwdcPdcFsmoFQDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainNetBIOS,
+		$adDomainDomainControllersContainerDN,
+		$adDomainRwdcPdcFsmoFQDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$badAct0rSamAccountName1 = "BdActr" + $adDomainNetBIOS + "115"
+	$adsiSearcher1 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName1))"
+	$adsiSearcher1.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject1 = $adsiSearcher1.FindOne()
+	$badAct0rSidStringFormat1 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject1.Properties.objectsid),0)).Value
+	$badAct0rSamAccountName2 = "BdActr" + $adDomainNetBIOS + "116"
+	$adsiSearcher2 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName2))"
+	$adsiSearcher2.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject2 = $adsiSearcher2.FindOne()
+	$badAct0rSidStringFormat2 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject2.Properties.objectsid),0)).Value
+	$badAct0rSamAccountName3 = "BdActr" + $adDomainNetBIOS + "117"
+	$adsiSearcher3 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName3))"
+	$adsiSearcher3.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject3 = $adsiSearcher3.FindOne()
+	$badAct0rSidStringFormat3 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject3.Properties.objectsid),0)).Value
+	$badAct0rSamAccountName4 = "BdActr" + $adDomainNetBIOS + "118"
+	$adsiSearcher4 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName4))"
+	$adsiSearcher4.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject4 = $adsiSearcher4.FindOne()
+	$badAct0rSidStringFormat4 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject4.Properties.objectsid),0)).Value
+	
+	$adsiSearcher5 = [adsisearcher]"(&(objectCategory=Computer)(objectClass=computer)(|(primaryGroupID=516)(primaryGroupID=521)))"
+	$adsiSearcher5.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDomainControllersContainerDN)
+	$domainControllerObjects = $adsiSearcher5.FindAll()
+	$rwDomainControllerObject = ($domainControllerObjects | Where-Object{$_.Properties.primarygroupid -eq "516"})[0]
+	$rwDomainController = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$($rwDomainControllerObject.properties.distinguishedname[0])"
+	$roDomainControllerObject = ($domainControllerObjects | Where-Object{$_.Properties.primarygroupid -eq "521"})[0]
+	$roDomainController = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$($roDomainControllerObject.properties.distinguishedname[0])"
+	Write-Host "Object DN: $($rwDomainControllerObject.properties.distinguishedname[0])" -ForeGroundColor Magenta
+	Try{
+		$securityDescriptor1 = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList "O:BAD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;$badAct0rSidStringFormat1)"
+		$securityDescriptorBytes1 = New-Object byte[] ($securityDescriptor1.BinaryLength)
+		$securityDescriptor1.GetBinaryForm($securityDescriptorBytes1, 0)
+		$rwDomainController.Put("msds-allowedtoactonbehalfofotheridentity",$securityDescriptorBytes1)
+		$rwDomainController.SetInfo()
+		Write-Host " > Resource Based Kerberos Constrained Delegation For '$adDomainNetBIOS\$badAct0rSamAccountName1'..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	Write-Host "Object DN: $($roDomainControllerObject.properties.distinguishedname[0])" -ForeGroundColor Magenta
+	Try{
+		$securityDescriptor2 = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList "O:BAD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;$badAct0rSidStringFormat2)"
+		$securityDescriptorBytes2 = New-Object byte[] ($securityDescriptor2.BinaryLength)
+		$securityDescriptor2.GetBinaryForm($securityDescriptorBytes2, 0)
+		$roDomainController.Put("msds-allowedtoactonbehalfofotheridentity",$securityDescriptorBytes2)
+		$roDomainController.SetInfo()
+		Write-Host " > Resource Based Kerberos Constrained Delegation For '$adDomainNetBIOS\$badAct0rSamAccountName2'..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	
+	$adsiSearcher6 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(|(ObjectSID=$adDomainSID-502)(msDS-KrbTgtLinkBl=*))(!(Name=krbtgt_AzureAD)))"
+	$adsiSearcher6.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+	$krbtgtAccountObjects = $adsiSearcher6.FindAll()
+	$krbtgtAccountRWDCObject = ($krbtgtAccountObjects | Where-Object{(New-Object System.Security.Principal.SecurityIdentifier($_.Properties.objectsid[0],0)).Value -eq $($adDomainSID + "-502")})
+	$krbtgtAccountRWDC = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$($krbtgtAccountRWDCObject.properties.distinguishedname[0])"
+	$krbtgtAccountRODCObject = ($krbtgtAccountObjects | Where-Object{$_.Properties."msds-krbtgtlinkbl" -ne $null})[$(Get-Random -Minimum 1 -Maximum $(($krbtgtAccountObjects | Measure-Object).Count))]
+	$krbtgtAccountRODC = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$($krbtgtAccountRODCObject.properties.distinguishedname[0])"
+	Write-Host "Object DN: $($krbtgtAccountRWDCObject.properties.distinguishedname[0])" -ForeGroundColor Magenta
+	Try{
+		$securityDescriptor3 = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList "O:BAD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;$badAct0rSidStringFormat3)"
+		$securityDescriptorBytes3 = New-Object byte[] ($securityDescriptor3.BinaryLength)
+		$securityDescriptor3.GetBinaryForm($securityDescriptorBytes3, 0)
+		$krbtgtAccountRWDC.Put("msds-allowedtoactonbehalfofotheridentity",$securityDescriptorBytes3)
+		$krbtgtAccountRWDC.SetInfo()
+		Write-Host " > Resource Based Kerberos Constrained Delegation For '$adDomainNetBIOS\$badAct0rSamAccountName3'..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	Write-Host "Object DN: $($krbtgtAccountRODCObject.properties.distinguishedname[0])" -ForeGroundColor Magenta
+	Try{
+		$securityDescriptor4 = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList "O:BAD:(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;$badAct0rSidStringFormat4)"
+		$securityDescriptorBytes4 = New-Object byte[] ($securityDescriptor4.BinaryLength)
+		$securityDescriptor4.GetBinaryForm($securityDescriptorBytes4, 0)
+		$krbtgtAccountRODC.Put("msds-allowedtoactonbehalfofotheridentity",$securityDescriptorBytes4)
+		$krbtgtAccountRODC.SetInfo()
+		Write-Host " > Resource Based Kerberos Constrained Delegation For '$adDomainNetBIOS\$badAct0rSamAccountName4'..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+}
+#################################################################################
+# Assigning Write Access To Resource Based Constrained Delegation (RBCD) On DC Account
+# Assigning Write Access To Resource Based Constrained Delegation (RBCD) On KrbTgt Account
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainNetBIOS,$adDomainDomainControllersContainerDN,$adDomainRwdcPdcFsmoFQDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainNetBIOS,
+		$adDomainDomainControllersContainerDN,
+		$adDomainRwdcPdcFsmoFQDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+	
+	$schemaIDGUIDScopedAttribute = "3f78c3e5-f79a-46bd-a0b8-9d18116ddc79" # Schema ID Guid For msDS-AllowedToActOnBehalfOfOtherIdentity attributeClass
+	$schemaIDGUIDAllProperties = "00000000-0000-0000-0000-000000000000" # Schema ID Guid For All Properties
+	$badAct0rSamAccountName1 = "BdActr" + $adDomainNetBIOS + "119"
+	$adsiSearcher1 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName1))"
+	$adsiSearcher1.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject1 = $adsiSearcher1.FindOne()
+	$badAct0rSidStringFormat1 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject1.Properties.objectsid),0)).Value
+	$badAct0rSecurityIdentifier1 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat1
+	$badAct0rIdentityReference1 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier1
+	$badAct0rSamAccountName2 = "BdActr" + $adDomainNetBIOS + "120"
+	$adsiSearcher2 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName2))"
+	$adsiSearcher2.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject2 = $adsiSearcher2.FindOne()
+	$badAct0rSidStringFormat2 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject2.Properties.objectsid),0)).Value
+	$badAct0rSecurityIdentifier2 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat2
+	$badAct0rIdentityReference2 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier2
+	$badAct0rSamAccountName3 = "BdActr" + $adDomainNetBIOS + "121"
+	$adsiSearcher3 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName3))"
+	$adsiSearcher3.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject3 = $adsiSearcher3.FindOne()
+	$badAct0rSidStringFormat3 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject3.Properties.objectsid),0)).Value
+	$badAct0rSecurityIdentifier3 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat3
+	$badAct0rIdentityReference3 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier3
+	$badAct0rSamAccountName4 = "BdActr" + $adDomainNetBIOS + "122"
+	$adsiSearcher4 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName4))"
+	$adsiSearcher4.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject4 = $adsiSearcher4.FindOne()
+	$badAct0rSidStringFormat4 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject4.Properties.objectsid),0)).Value
+	$badAct0rSecurityIdentifier4 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat4
+	$badAct0rIdentityReference4 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier4
+	$badAct0rSamAccountName5 = "BdActr" + $adDomainNetBIOS + "123"
+	$adsiSearcher5 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName5))"
+	$adsiSearcher5.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject5 = $adsiSearcher5.FindOne()
+	$badAct0rSidStringFormat5 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject5.Properties.objectsid),0)).Value
+	$badAct0rSecurityIdentifier5 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat5
+	$badAct0rIdentityReference5 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier5
+	$adsiSearcher1 = [adsisearcher]"(&(objectCategory=Computer)(objectClass=computer)(|(primaryGroupID=516)(primaryGroupID=521)))"
+	$adsiSearcher1.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDomainControllersContainerDN)
+	$domainControllerObjects = $adsiSearcher1.FindAll()
+	$domainControllerObjects | ForEach-Object{
+		$domainController = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$($_.properties.distinguishedname[0])"
+		Write-Host "Object DN: $($_.properties.distinguishedname[0])" -ForeGroundColor Magenta
+		Try{
+			$aceRight1 = [System.DirectoryServices.ActiveDirectoryRights] "GenericAll" # Full Control
+			$aceRight2 = [System.DirectoryServices.ActiveDirectoryRights] "GenericWrite" # Generic Write On All Properties
+			$aceRight3 = [System.DirectoryServices.ActiveDirectoryRights] "WriteProperty" # Write Property On Specific Attribute(s)
+			$aceRight4 = [System.DirectoryServices.ActiveDirectoryRights] "WriteDACL" # Write DACL
+			$aceRight5 = [System.DirectoryServices.ActiveDirectoryRights] "WriteOwner" # Write Owner
+			$aceType = [System.Security.AccessControl.AccessControlType] "Allow"
+			$aceInheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None" # This Object Only
+			
+			$ace1 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference1,$aceRight1,$aceType,$aceInheritanceType # Define The ACE To Set
+			$domainController.psbase.objectSecurity.AddAccessRule($ace1)
+			
+			$ace2 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference2,$aceRight2,$aceType,$schemaIDGUIDAllProperties,$aceInheritanceType # Define The ACE To Set
+			$domainController.psbase.objectSecurity.AddAccessRule($ace2)		
+			
+			$ace3 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference3,$aceRight3,$aceType,$schemaIDGUIDScopedAttribute,$aceInheritanceType # Define The ACE To Set
+			$domainController.psbase.objectSecurity.AddAccessRule($ace3)
+			
+			$ace4 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference4,$aceRight4,$aceType,$aceInheritanceType # Define The ACE To Set
+			$domainController.psbase.objectSecurity.AddAccessRule($ace4)	
+			
+			$ace5 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference5,$aceRight5,$aceType,$aceInheritanceType # Define The ACE To Set
+			$domainController.psbase.objectSecurity.AddAccessRule($ace5)	
+			
+			$domainController.psbase.commitchanges()
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName1' Full Control Permissions..." -ForeGroundColor Green
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName2' Write All Properties Permissions..." -ForeGroundColor Green
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName3' Write msDS-AllowedToActOnBehalfOfOtherIdentity Property Permissions..." -ForeGroundColor Green
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName4' Write DACL Permissions..." -ForeGroundColor Green
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName5' Write Owner Permissions..." -ForeGroundColor Green
+		} Catch {
+			Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+			Write-Host ""
+			Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+		}
+		Write-Host ""
+	}
+	Write-Host ""
+	$adsiSearcher2 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(|(ObjectSID=$adDomainSID-502)(msDS-KrbTgtLinkBl=*))(!(Name=krbtgt_AzureAD)))"
+	$adsiSearcher2.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+	$krbtgtAccountObjects = $adsiSearcher2.FindAll()
+	$krbtgtAccountObjects | ForEach-Object{
+		$krbtgtAccount = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$($_.properties.distinguishedname[0])"
+		Write-Host "Object DN: $($_.properties.distinguishedname[0])" -ForeGroundColor Magenta
+		Try{
+			$aceRight1 = [System.DirectoryServices.ActiveDirectoryRights] "GenericAll" # Full Control
+			$aceRight2 = [System.DirectoryServices.ActiveDirectoryRights] "GenericWrite" # Generic Write On All Properties
+			$aceRight3 = [System.DirectoryServices.ActiveDirectoryRights] "WriteProperty" # Write Property On Specific Attribute(s)
+			$aceRight4 = [System.DirectoryServices.ActiveDirectoryRights] "WriteDACL" # Write DACL
+			$aceRight5 = [System.DirectoryServices.ActiveDirectoryRights] "WriteOwner" # Write Owner
+			$aceType = [System.Security.AccessControl.AccessControlType] "Allow"
+			$aceInheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None" # This Object Only
+			
+			$ace1 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference1,$aceRight1,$aceType,$aceInheritanceType # Define The ACE To Set
+			$krbtgtAccount.psbase.objectSecurity.AddAccessRule($ace1)
+			
+			$ace2 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference2,$aceRight2,$aceType,$schemaIDGUIDAllProperties,$aceInheritanceType # Define The ACE To Set
+			$krbtgtAccount.psbase.objectSecurity.AddAccessRule($ace2)		
+			
+			$ace3 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference3,$aceRight3,$aceType,$schemaIDGUIDScopedAttribute,$aceInheritanceType # Define The ACE To Set
+			$krbtgtAccount.psbase.objectSecurity.AddAccessRule($ace3)
+			
+			$ace4 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference4,$aceRight4,$aceType,$aceInheritanceType # Define The ACE To Set
+			$krbtgtAccount.psbase.objectSecurity.AddAccessRule($ace4)	
+			
+			$ace5 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference5,$aceRight5,$aceType,$aceInheritanceType # Define The ACE To Set
+			$krbtgtAccount.psbase.objectSecurity.AddAccessRule($ace5)	
+			
+			$krbtgtAccount.psbase.commitchanges()
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName1' Full Control Permissions..." -ForeGroundColor Green
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName2' Write All Properties Permissions..." -ForeGroundColor Green
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName3' Write msDS-AllowedToActOnBehalfOfOtherIdentity Property Permissions..." -ForeGroundColor Green
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName4' Write DACL Permissions..." -ForeGroundColor Green
+			Write-Host " > Assigned '$adDomainNetBIOS\$badAct0rSamAccountName5' Write Owner Permissions..." -ForeGroundColor Green
+		} Catch {
+			Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+			Write-Host ""
+			Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+		}
+		Write-Host ""
+	}
+	Write-Host ""
+}

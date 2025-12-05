@@ -1,0 +1,1368 @@
+Bad AD Configs - AD Delegations
+REMARK: !!! DO NOT EXECUTE IN ANY PRODUCTION ENVIRONMENT !!!
+REMARK: !!! ALL THIS WILL WEAKEN THE SECURITY POSTURE OF YOUR AD !!!
+REMARK: !!! SOME ACTIONS MIGHT EVEN BREAK YOUR DC(s)/AD !!!
+REMARK: Execute The Code With The Built-In Domain/Enterprise Administrator Account!!!
+REMARK: Execute The Code On A RWDC Of The Corresponding AD Domain!!!
+Import-Module ActiveDirectory
+
+$adDomain = Get-ADDomain -Current LocalComputer
+$adDomainDN = $adDomain.DistinguishedName
+$adDomainFQDN = $adDomain.DNSRoot
+$adDomainNetBIOS = $adDomain.NetBIOSName
+$adDomainDeletedObjectsContainerDN = $adDomain.DeletedObjectsContainer
+$adDomainDomainControllersContainerDN = $adDomain.DomainControllersContainer
+$adDomainSID = $adDomain.DomainSID.Value
+$adDomainRwdcPdcFsmoFQDN = $adDomain.PDCEmulator
+$adDomainRwdcFQDN = (Get-ADDomainController -DomainName $adDomainFQDN -Discover).HostName[0]
+
+$adForest = Get-ADForest -Current LocalComputer
+$adForestRootDomainFQDN = $adForest.RootDomain
+$adForestRootDomain = Get-ADDomain $adForestRootDomainFQDN
+$adForestRootDomainNetBIOS = $adForestRootDomain.NetBIOSName
+$adForestRootDomainSID = $adForestRootDomain.DomainSID.Value
+$adForestRwdcSchFsmoFQDN = $adForest.SchemaMaster
+$adForestRwdcDnmFsmoFQDN = $adForest.DomainNamingMaster
+$adForestPartitionsContainerDN = $adForest.PartitionsContainer
+$adForestConfigNCDN = $adForestPartitionsContainerDN.Replace("CN=Partitions,","")
+$adForestSchemaNCDN = "CN=Schema," + $adForestConfigNCDN
+
+$OU = "OU=TEST,$adDomainDN"
+#################################################################################
+# Enable Inheritance On AdminSDHolder
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainRwdcPdcFsmoFQDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainRwdcPdcFsmoFQDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$adminSDHolderDN = "CN=AdminSDHolder,CN=System," + $adDomainDN
+	Write-Host "Object DN: $adminSDHolderDN" -ForeGroundColor Magenta
+	$adminSDHolder = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adminSDHolderDN)
+	$adminSDHolderDACL = $adminSDHolder.psbase.objectSecurity
+	If ($adminSDHolderDACL.get_AreAccessRulesProtected()) {
+		$containerIsProtected = $false	# Enable Inheritance
+        $preserveInheritedACEs = $true	# Preserve Inherited ACEs From Parent(s)
+		$adminSDHolderDACL.SetAccessRuleProtection($containerIsProtected, $preserveInheritedACEs)
+		Try {
+			$adminSDHolder.psbase.commitchanges()
+			Write-Host " > Inheritance Enabled..." -ForeGroundColor Green
+		} Catch {
+			Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		}		
+
+	} Else {
+		Write-Host " > Inheritance Already Enabled..." -ForeGroundColor Yellow
+	}
+	Write-Host ""
+}
+#################################################################################
+# Permissions Change On AdminSDHolder With Non-Admin/Non-Privileged User
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainNetBIOS,$adDomainRwdcPdcFsmoFQDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainNetBIOS,
+		$adDomainRwdcPdcFsmoFQDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$adminSDHolderDN = "CN=AdminSDHolder,CN=System," + $adDomainDN
+	Write-Host "Object DN: $adminSDHolderDN" -ForeGroundColor Magenta
+	$adminSDHolder = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adminSDHolderDN)
+	$badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + "0"
+	$adsiSearcher = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName))"
+	$adsiSearcher.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject = $adsiSearcher.FindOne()
+	Write-Host " > Bad Act0r: $($badAct0rObject.Properties.samaccountname[0]) | $($badAct0rObject.Properties.userprincipalname[0]) | $($badAct0rObject.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+	Try {
+		$badAct0rSidStringFormat = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject.Properties.objectsid),0)).Value
+		$badAct0rSecurityIdentifier = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat
+		$badAct0rIdentityReference = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier
+		$aceRight = [System.DirectoryServices.ActiveDirectoryRights] "GenericAll" # Full Control
+		$aceType = [System.Security.AccessControl.AccessControlType] "Allow"
+		$aceInheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "All"
+		$ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference,$aceRight,$aceType,$aceInheritanceType # Define The ACE To Set
+		$adminSDHolder.psbase.objectSecurity.AddAccessRule($ace)
+		$adminSDHolder.psbase.commitchanges()
+		Write-Host " > Assigned Full Control On AdminSDHolder..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+}
+#################################################################################
+# Update AD Display Specifier
+
+Invoke-Command -ArgumentList $adForestRwdcDnmFsmoFQDN,$adForestConfigNCDN -ScriptBlock{
+	Param(
+		$adForestRwdcDnmFsmoFQDN,
+		$adForestConfigNCDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$userDisplaySpecifierDN1 = "CN=user-Display,CN=401,CN=DisplaySpecifiers," + $adForestConfigNCDN
+	Write-Host "Object DN: $userDisplaySpecifierDN1" -ForeGroundColor Magenta
+	$userDisplaySpecifier1 = [ADSI]("LDAP://" + $adForestRwdcDnmFsmoFQDN + "/" + $userDisplaySpecifierDN1)
+	$currentAdminContextMenu1 = $userDisplaySpecifier1.adminContextMenu
+	Do {
+		$randomNr1 = Get-Random -Minimum 1 -Maximum 99
+	} Until ($currentAdminContextMenu1.SubString(0,2).Trim(",") -notcontains $randomNr1)
+	$newAdminContextMenuValue1 = "$randomNr1,Some Bad Action1,C:\TEMP\BadCode1.cmd"
+	# https://docs.microsoft.com/en-us/windows/desktop/adsi/the-putex-method
+	[int]$ADS_PROPERTY_CLEAR = 1	# Clear All Values, Specify 0 As The New Value
+	[int]$ADS_PROPERTY_UPDATE = 2	# Replace All Existing Values With Whatever Is Being Set
+	[int]$ADS_PROPERTY_APPEND = 3	# Add To Existing Values With Whatever Is Being Set
+	[int]$ADS_PROPERTY_DELETE = 4	# Delete From Existing Values With Whatever Is Being Removed
+	Try {
+		$userDisplaySpecifier1.PutEx($ADS_PROPERTY_APPEND, "adminContextMenu", @($newAdminContextMenuValue1))
+		$userDisplaySpecifier1.SetInfo()
+		#$userDisplaySpecifier1.RefreshCache()
+		#$userDisplaySpecifier1.adminContextMenu
+		Write-Host " > New Admin Context Menu Value Added: '$newAdminContextMenuValue1'..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	$userDisplaySpecifierDN2 = "CN=user-Display,CN=409,CN=DisplaySpecifiers," + $adForestConfigNCDN
+	Write-Host "Object DN: $userDisplaySpecifierDN2" -ForeGroundColor Magenta
+	$userDisplaySpecifier2 = [ADSI]("LDAP://" + $adForestRwdcDnmFsmoFQDN + "/" + $userDisplaySpecifierDN2)
+	$currentAdminContextMenu2 = $userDisplaySpecifier2.adminContextMenu
+	Do {
+		$randomNr2 = Get-Random -Minimum 1 -Maximum 99
+	} Until ($currentAdminContextMenu2.SubString(0,2).Trim(",") -notcontains $randomNr2)
+	$newAdminContextMenuValue2 = "$randomNr2,Some Bad Action2,C:\TEMP\BadCode2.cmd"
+	# https://docs.microsoft.com/en-us/windows/desktop/adsi/the-putex-method
+	[int]$ADS_PROPERTY_CLEAR = 1	# Clear All Values, Specify 0 As The New Value
+	[int]$ADS_PROPERTY_UPDATE = 2	# Replace All Existing Values With Whatever Is Being Set
+	[int]$ADS_PROPERTY_APPEND = 3	# Add To Existing Values With Whatever Is Being Set
+	[int]$ADS_PROPERTY_DELETE = 4	# Delete From Existing Values With Whatever Is Being Removed
+	Try {
+		$userDisplaySpecifier2.PutEx($ADS_PROPERTY_APPEND, "adminContextMenu", @($newAdminContextMenuValue2))
+		$userDisplaySpecifier2.SetInfo()
+		#$userDisplaySpecifier2.RefreshCache()
+		#$userDisplaySpecifier2.adminContextMenu
+		Write-Host " > New Admin Context Menu Value Added: '$newAdminContextMenuValue2'..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	$userDisplaySpecifierDN3 = "CN=user-Display,CN=816,CN=DisplaySpecifiers," + $adForestConfigNCDN
+	Write-Host "Object DN: $userDisplaySpecifierDN3" -ForeGroundColor Magenta
+	$userDisplaySpecifier3 = [ADSI]("LDAP://" + $adForestRwdcDnmFsmoFQDN + "/" + $userDisplaySpecifierDN3)
+	$currentAdminContextMenu3 = $userDisplaySpecifier3.adminContextMenu
+	Do {
+		$randomNr3 = Get-Random -Minimum 1 -Maximum 99
+	} Until ($currentAdminContextMenu3.SubString(0,2).Trim(",") -notcontains $randomNr3)
+	$newAdminContextMenuValue3 = "$randomNr3,Some Bad Action3,C:\TEMP\BadCode3.cmd"
+	# https://docs.microsoft.com/en-us/windows/desktop/adsi/the-putex-method
+	[int]$ADS_PROPERTY_CLEAR = 1	# Clear All Values, Specify 0 As The New Value
+	[int]$ADS_PROPERTY_UPDATE = 2	# Replace All Existing Values With Whatever Is Being Set
+	[int]$ADS_PROPERTY_APPEND = 3	# Add To Existing Values With Whatever Is Being Set
+	[int]$ADS_PROPERTY_DELETE = 4	# Delete From Existing Values With Whatever Is Being Removed
+	Try {
+		$userDisplaySpecifier3.PutEx($ADS_PROPERTY_APPEND, "adminContextMenu", @($newAdminContextMenuValue3))
+		$userDisplaySpecifier3.SetInfo()
+		#$userDisplaySpecifier3.RefreshCache()
+		#$userDisplaySpecifier3.adminContextMenu
+		Write-Host " > New Admin Context Menu Value Added: '$newAdminContextMenuValue3'..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+}
+#################################################################################
+# Update Default Permissions
+
+Invoke-Command -ArgumentList $adForestRwdcSchFsmoFQDN,$adForestSchemaNCDN -ScriptBlock{
+	Param(
+		$adForestRwdcSchFsmoFQDN,
+		$adForestSchemaNCDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$userObjectClassSchemaDN = "CN=User," + $adForestSchemaNCDN
+
+	Write-Host "Object DN: $userObjectClassSchemaDN" -ForeGroundColor Magenta
+	$userObjectClassSchema = [ADSI]("LDAP://" + $adForestRwdcSchFsmoFQDN + "/" + $userObjectClassSchemaDN)
+	$currentDefaultPermissions = $userObjectClassSchema.defaultSecurityDescriptor
+	If ($currentDefaultPermissions -match "(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;WD)") {
+		Write-Host " > ACE 'Everyone With Allow:FullControl' Already In Default Permissions For User ObjectClass..." -ForeGroundColor Yellow
+	} Else {
+		$newDefaultPermissions = "$currentDefaultPermissions(A;;RPWPCRCCDCLCLORCWOWDSDDTSW;;;WD)" # Adding Everyone With Allow:FullControl
+		Try {
+			$userObjectClassSchema.Put("defaultSecurityDescriptor", $newDefaultPermissions)
+			$userObjectClassSchema.SetInfo()
+			Write-Host " > Default Permissions For User ObjectClass Updated: Added ACE 'Everyone With Allow:FullControl'..." -ForeGroundColor Green
+		} Catch {
+			Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+			Write-Host ""
+			Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+		}
+	}
+	Write-Host ""
+}
+#################################################################################
+# Set Non-Admin/Non-Privileged User As Owner Of Domain Controller Computer Account
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainNetBIOS,$adDomainRwdcPdcFsmoFQDN,$adDomainDomainControllersContainerDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainNetBIOS,
+		$adDomainRwdcPdcFsmoFQDN,
+		$adDomainDomainControllersContainerDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$adsiSearcher = [adsisearcher]"(&(objectCategory=Computer)(objectClass=computer)(|(primaryGroupID=516)(primaryGroupID=521)))"
+	$adsiSearcher.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDomainControllersContainerDN)
+	$domainControllerObjects = $adsiSearcher.FindAll()
+	$randomNr = Get-Random -Minimum 1 -Maximum $(($domainControllerObjects | Measure-Object).Count)
+	$domainControllerObject = $domainControllerObjects[$randomNr]
+	$domainController = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($domainControllerObject.properties.distinguishedname[0]))
+	Write-Host "Object DN: $($domainControllerObject.properties.distinguishedname[0])" -ForeGroundColor Magenta
+	$badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + "1"
+	$adsiSearcher = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName))"
+	$adsiSearcher.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject = $adsiSearcher.FindOne()
+	Write-Host " > Bad Act0r: $($badAct0rObject.Properties.samaccountname[0]) | $($badAct0rObject.Properties.userprincipalname[0]) | $($badAct0rObject.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+	Try {
+		$badAct0rSidStringFormat = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject.Properties.objectsid),0)).Value
+		$badAct0rSecurityIdentifier = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat
+		$badAct0rIdentityReference = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier
+		$domainController.psbase.objectSecurity.SetOwner($badAct0rIdentityReference)
+		$domainController.psbase.commitchanges()
+		Write-Host " > Non-Admin Assigned As Owner..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+}
+#################################################################################
+# Set Non-Admin/Non-Privileged User On DPAPI Key
+
+REMARK: How to achieve/configure this???
+#################################################################################
+# Set Enterprise Key Admins With Full Control On Domain NC
+
+Invoke-Command -ArgumentList $adDomainRwdcPdcFsmoFQDN,$adDomainDN,$adForestRootDomainNetBIOS,$adForestRootDomainSID -ScriptBlock{
+	Param(
+		$adDomainRwdcPdcFsmoFQDN,
+		$adDomainDN,
+		$adForestRootDomainNetBIOS,
+		$adForestRootDomainSID
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$domain = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+	Write-Host "Object DN: $adDomainDN" -ForeGroundColor Magenta
+	Write-Host " > Enterprise Key Admins: $adForestRootDomainNetBIOS\Enterprise Key Admins" -ForeGroundColor Cyan
+	Try {
+		$enterpriseKeyAdminsStringFormat = $adForestRootDomainSID + "-527"
+		$enterpriseKeyAdminsSecurityIdentifier = [System.Security.Principal.SecurityIdentifier] $enterpriseKeyAdminsStringFormat
+		$enterpriseKeyAdminsIdentityReference = [System.Security.Principal.IdentityReference] $enterpriseKeyAdminsSecurityIdentifier
+		$aceRight = [System.DirectoryServices.ActiveDirectoryRights] "GenericAll" # Full Control
+		$aceType = [System.Security.AccessControl.AccessControlType] "Allow"
+		$aceInheritanceType = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "All"
+		$ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $enterpriseKeyAdminsIdentityReference,$aceRight,$aceType,$aceInheritanceType # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace)
+		$domain.psbase.commitchanges()
+		Write-Host " > Assigned Full Control On Domain NC..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+}
+#################################################################################
+# Set Non-Admin/Non-Privileged User To Read Gmsa Password (!!! ADSI !!!)
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainNetBIOS,$adDomainRwdcPdcFsmoFQDN,$OU -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainNetBIOS,
+		$adDomainRwdcPdcFsmoFQDN,
+		$OU
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$adsiSearcher = [adsisearcher]"(&(objectCategory=msDS-GroupManagedServiceAccount)(objectClass=msDS-GroupManagedServiceAccount))"
+	$adsiSearcher.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $OU)
+	$groupManagedServiceAccountObjects = $adsiSearcher.FindAll()
+	$i = 0
+	$groupManagedServiceAccountObjects | ForEach-Object{
+		$i++
+		$groupManagedServiceAccount = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$($_.properties.distinguishedname[0])"
+		Write-Host "Object DN: $($_.properties.distinguishedname[0])" -ForeGroundColor Magenta
+		$currentAllowedIDsToRetrieveGmsaPassword = @()
+		$rawSecurityDescriptor = New-Object System.Security.AccessControl.RawSecurityDescriptor @($($_.Properties."msds-groupmsamembership"[0]), 0)
+		$sddlSecurityDescriptor = $rawSecurityDescriptor.GetSddlForm('Access,Owner')
+		[System.Collections.ArrayList]$acesSecurityDescriptor = $($sddlSecurityDescriptor.Split("("))
+		$acesSecurityDescriptor.RemoveAt("0")
+		$acesSecurityDescriptor | ForEach-Object{
+			$currentAllowedIDsToRetrieveGmsaPassword += $(New-Object System.Security.Principal.SecurityIdentifier($_.Split(";")[5].TrimEnd(")"))).Translate([System.Security.Principal.NTAccount]).Value
+		}
+		If ($i -eq 1 -Or $i -eq 2) {
+			If ($i -eq 1) {
+				$badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + "3"
+			}
+			If ($i -eq 2) {
+				$badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + "4"
+			}
+			$newAllowedIDsToRetrieveGmsaPassword = @()
+			$currentAllowedIDsToRetrieveGmsaPassword | ForEach-Object{
+				$adsiSearcher1 = [adsisearcher]"(sAMAccountName=$($_.Split("\")[1]))"
+				$adsiSearcher1.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+				$adObject = $adsiSearcher1.FindOne()
+				If ($adObject.Properties.samaccounttype -eq "805306368") {
+					$objectClass = "user"
+				}
+				If ($adObject.Properties.samaccounttype -eq "805306369" -And $adObject.Properties."msds-managedpasswordid" -eq $null) {
+					$objectClass = "computer"
+				}
+				If ($adObject.Properties.samaccounttype -eq "805306369" -And $adObject.Properties."msds-managedpasswordid" -ne $null) {
+					$objectClass = "msDS-GroupManagedServiceAccount"
+				}
+				If ($adObject.Properties.samaccounttype -eq "268435456") {
+					$objectClass = "group"
+				}
+				Write-Host " > Existing Principal Allowed To Read gMSA Password: '$_' ($objectClass)" -ForeGroundColor Cyan
+				$newAllowedIDsToRetrieveGmsaPassword += $_
+			}
+			If ($newAllowedIDsToRetrieveGmsaPassword -notcontains $($adDomainNetBIOS + "\" + $badAct0rSamAccountName)) {
+				$newAllowedIDsToRetrieveGmsaPassword += $adDomainNetBIOS + "\" + $badAct0rSamAccountName
+				Write-Host " > New Principal Allowed To Read gMSA Password: '$adDomainNetBIOS\$badAct0rSamAccountName' (user)" -ForeGroundColor Cyan
+			}
+			$allowedPrincipalsToRetrieveGmsaPasswordSddlArray = @()
+			$allowedPrincipalsToRetrieveGmsaPasswordSddlArray += "O:BAD:"
+			$newAllowedIDsToRetrieveGmsaPassword | ForEach-Object{
+				$allowedPrincipalsToRetrieveGmsaPasswordSddlArray += "(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;$((New-Object System.Security.Principal.NTAccount($($_.Split("\")[0]),$_.Split("\")[1])).Translate([System.Security.Principal.SecurityIdentifier]).Value))"
+			}
+			$allowedPrincipalsToRetrieveGmsaPasswordSddl = $allowedPrincipalsToRetrieveGmsaPasswordSddlArray -join ''
+			Try {
+				$newRawSecurityDescriptor = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList $allowedPrincipalsToRetrieveGmsaPasswordSddl
+				$newRawSecurityDescriptorBytes = New-Object byte[] ($newRawSecurityDescriptor.BinaryLength)
+				$newRawSecurityDescriptor.GetBinaryForm($newRawSecurityDescriptorBytes, 0)
+				$groupManagedServiceAccount.Put("msds-groupmsamembership",$newRawSecurityDescriptorBytes)
+				$groupManagedServiceAccount.SetInfo()
+				Write-Host " > New List Of Principals Allowed To Retrieve Password Configured On Gmsa..." -ForeGroundColor Green
+			} Catch {
+				Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+				Write-Host ""
+				Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+			}
+			Write-Host ""
+		}
+		If ($i -eq 3 -Or $i -eq 4) {
+			If ($i -eq 3) {
+				$badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + "5"
+			}
+			If ($i -eq 4) {
+				$badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + "6"
+			}
+			$currentAllowedIDsToRetrieveGmsaPassword | ForEach-Object{
+				$adsiSearcher1 = [adsisearcher]"(sAMAccountName=$($_.Split("\")[1]))"
+				$adsiSearcher1.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+				$adObject = $adsiSearcher1.FindOne()
+				If ($adObject.Properties.samaccounttype -eq "805306368") {
+					$objectClass = "user"
+				}
+				If ($adObject.Properties.samaccounttype -eq "805306369" -And $adObject.Properties."msds-managedpasswordid" -eq $null) {
+					$objectClass = "computer"
+				}
+				If ($adObject.Properties.samaccounttype -eq "805306369" -And $adObject.Properties."msds-managedpasswordid" -ne $null) {
+					$objectClass = "msDS-GroupManagedServiceAccount"
+				}
+				If ($adObject.Properties.samaccounttype -eq "268435456") {
+					$objectClass = "group"
+				}
+				Write-Host " > Existing Principal Allowed To Read gMSA Password: '$_' ($objectClass)" -ForeGroundColor Cyan
+				If ($objectClass -eq "group") {
+					$adsiSearcher2 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName))"
+					$adsiSearcher2.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+					$badAct0rObject = $adsiSearcher2.FindOne()
+					$group = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$($adObject.properties.distinguishedname[0])"
+					$group.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject.properties.distinguishedname[0]))
+					$group.SetInfo()
+					Write-Host "   # New Member '$adDomainNetBIOS\$badAct0rSamAccountName' Added To Group Allowed To Retrieve Password From Gmsa..." -ForeGroundColor Green
+				}
+			}
+			Write-Host ""
+			If ($i -eq 4) {
+
+				BREAK
+			}
+		}
+	}
+	Write-Host ""
+}
+
+<#
+# Set Non-Admin/Non-Privileged User To Read Gmsa Password (!!! AD PoSH CMDlets !!!)
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainNetBIOS,$adDomainRwdcPdcFsmoFQDN,$OU -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainNetBIOS,
+		$adDomainRwdcPdcFsmoFQDN,
+		$OU
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$testOU = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $OU)
+	$adsiSearcher = [adsisearcher]"(&(objectCategory=msDS-GroupManagedServiceAccount)(objectClass=msDS-GroupManagedServiceAccount))"
+	$adsiSearcher.SearchRoot = $testOU
+	$groupManagedServiceAccountObjects = $adsiSearcher.FindAll()
+	$i = 0
+	$groupManagedServiceAccountObjects | ForEach-Object{
+		$i++
+		Write-Host "Object DN: $($_.properties.distinguishedname[0])" -ForeGroundColor Magenta
+		$currentAllowedIDsToRetrieveGmsaPassword = @()
+		(Get-ADServiceAccount -Identity $_.properties.distinguishedname[0] -Properties "msDS-GroupMSAMembership")."msDS-GroupMSAMembership".Access.IdentityReference.Value | ForEach-Object{
+			$currentAllowedIDsToRetrieveGmsaPassword += $_
+		}
+		If ($i -eq 1 -Or $i -eq 2) {
+			If ($i -eq 1) {
+				$badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + "3"
+			}
+			If ($i -eq 2) {
+				$badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + "4"
+			}
+			$newAllowedIDsToRetrieveGmsaPassword = @()
+			$currentAllowedIDsToRetrieveGmsaPassword | ForEach-Object{
+				Write-Host " > Existing (Group)/New (BadAct0r): '$_'" -ForeGroundColor Cyan
+				$newAllowedIDsToRetrieveGmsaPassword += $_
+			}
+			$newAllowedIDsToRetrieveGmsaPassword += $adDomainNetBIOS + "\" + $badAct0rSamAccountName
+			$allowedPrincipalsToRetrieveGmsaPassword = @()
+			$newAllowedIDsToRetrieveGmsaPassword | ForEach-Object{$allowedPrincipalsToRetrieveGmsaPassword += Get-ADObject -SearchBase $adDomainDN -LDAPFilter "(&(|(objectClass=group)(objectClass=user))(sAMAccountName=$($_.Split("\")[1])))" -Server $($_.Split("\")[0])}
+			Try {
+				Set-ADServiceAccount -Identity $($_.properties.distinguishedname[0]) -PrincipalsAllowedToRetrieveManagedPassword $allowedPrincipalsToRetrieveGmsaPassword -Server $adDomainRwdcPdcFsmoFQDN
+				Write-Host " > New List Of Principals Allowed To Retrieve Password Configured On Gmsa..." -ForeGroundColor Green
+			} Catch {
+				Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+				Write-Host ""
+				Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+			}
+			Write-Host ""
+		}
+		If ($i -eq 3 -Or $i -eq 4) {
+			If ($i -eq 3) {
+				$badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + "5"
+			}
+			If ($i -eq 4) {
+				$badAct0rSamAccountName = "BdActr" + $adDomainNetBIOS + "6"
+			}
+			$currentAllowedIDsToRetrieveGmsaPassword | ForEach-Object{
+				Write-Host " > Existing (Group)/New (BadAct0r): '$_' (New Member: '$adDomainNetBIOS\$badAct0rSamAccountName')" -ForeGroundColor Cyan
+				Try {
+					Add-ADGroupMember -Identity $($_.Split("\")[1]) -Members $(Get-ADUser -Identity $badAct0rSamAccountName -Server $adDomainRwdcPdcFsmoFQDN) -Server $($_.Split("\")[0])
+					Write-Host " > New Member Added To Group Allowed To Retrieve Password From Gmsa..." -ForeGroundColor Green
+				} Catch {
+					Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+					Write-Host ""
+					Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+				}
+			}
+			Write-Host ""
+			If ($i -eq 4) {
+
+				BREAK
+			}
+		}
+	}
+	Write-Host ""
+}
+#>
+#################################################################################
+# Enable Built-In Guest Account
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainSID,$adDomainRwdcPdcFsmoFQDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainSID,
+		$adDomainRwdcPdcFsmoFQDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$builtInGuestAccountSID = $adDomainSID + "-501"
+
+	$domain = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+	$adsiSearcher = [adsisearcher]"((objectSid=$builtInGuestAccountSID))"
+	$adsiSearcher.SearchRoot = $domain
+	$builtInGuestAccountObject = $adsiSearcher.FindOne()
+	$builtInGuestAccount = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($builtInGuestAccountObject.properties.distinguishedname[0]))
+	Write-Host "Object DN: $($builtInGuestAccountObject.properties.distinguishedname[0])" -ForeGroundColor Magenta
+	Write-Host " > Current State: $(If ($($builtInGuestAccount.Properties.useraccountcontrol[0] -band 2) -eq 2) {'Disabled'} Else {'Enabled'})" -ForeGroundColor Cyan
+	If ($($builtInGuestAccount.Properties.useraccountcontrol[0] -band 2) -eq 2) {
+    	Try {
+			$builtInGuestAccount.Put("userAccountControl", $($builtInGuestAccount.Properties.useraccountcontrol[0] -bxor 2))
+			$builtInGuestAccount.SetInfo()
+    		$builtInGuestAccount.RefreshCache()
+    		Write-Host " > New State: $(If ($($builtInGuestAccount.Properties.useraccountcontrol[0] -band 2) -eq 2) {'Disabled'} Else {'Enabled'})" -ForeGroundColor Green
+    	} Catch {
+    		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+    		Write-Host ""
+    		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+    	}
+    } Else {
+        Write-Host " > New State: $(If ($($builtInGuestAccount.Properties.useraccountcontrol[0] -band 2) -eq 2) {'Disabled'} Else {'Enabled (No Change!)'})" -ForeGroundColor Green
+    }
+	Write-Host ""
+}
+#################################################################################
+# Permissions To Set SERVER_TRUST_ACCOUNT On Domain NC
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainRwdcPdcFsmoFQDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainRwdcPdcFsmoFQDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	Write-Host "Object DN: $adDomainDN" -ForeGroundColor Magenta
+
+	# Full Control For This Object And Descendant Objects
+	$badAct0rSamAccountName1 = "BdActr" + $adDomainNetBIOS + "7"
+	$adsiSearcher1 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName1))"
+	$adsiSearcher1.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject1 = $adsiSearcher1.FindOne()
+	Write-Host " > Bad Act0r: $($badAct0rObject1.Properties.samaccountname[0]) | $($badAct0rObject1.Properties.userprincipalname[0]) | $($badAct0rObject1.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+	Try {
+		$domain = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+		$badAct0rSidStringFormat1 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject1.Properties.objectsid),0)).Value
+		$badAct0rSecurityIdentifier1 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat1
+		$badAct0rIdentityReference1 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier1
+		$aceRight1 = [System.DirectoryServices.ActiveDirectoryRights] "GenericAll" # Full Control
+		$aceType1 = [System.Security.AccessControl.AccessControlType] "Allow"
+		$aceInheritanceType1 = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "All" # This Object And Descendant Objects
+		$ace1 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference1,$aceRight1,$aceType1,$aceInheritanceType1 # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace1)
+		$domain.psbase.commitchanges()
+		Write-Host " > Assigned Full Control On Domain NC For All Objects..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	
+	# Full Control For Descendant Computer Objects
+	$badAct0rSamAccountName2 = "BdActr" + $adDomainNetBIOS + "8"
+	$adsiSearcher2 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName2))"
+	$adsiSearcher2.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject2 = $adsiSearcher2.FindOne()
+	Write-Host " > Bad Act0r: $($badAct0rObject2.Properties.samaccountname[0]) | $($badAct0rObject2.Properties.userprincipalname[0]) | $($badAct0rObject2.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+	Try {
+		$schemaIDGUIDScopedObject = "bf967a86-0de6-11d0-a285-00aa003049e2" # Schema ID Guid For Computer ObjectClass
+		$domain = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+		$badAct0rSidStringFormat2 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject2.Properties.objectsid),0)).Value
+		$badAct0rSecurityIdentifier2 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat2
+		$badAct0rIdentityReference2 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier2
+		$aceRight2 = [System.DirectoryServices.ActiveDirectoryRights] "GenericAll" # Full Control
+		$aceType2 = [System.Security.AccessControl.AccessControlType] "Allow"
+		$aceInheritanceType2 = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "Descendents" # Descendant Objects
+		$ace2 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference2,$aceRight2,$aceType2,$aceInheritanceType2,$schemaIDGUIDScopedObject # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace2)
+		$domain.psbase.commitchanges()
+		Write-Host " > Assigned Full Control On Domain NC For All Computer Objects..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+
+	# Read/Write Property For UserAccountControl On Descendant Computer Objects
+	$badAct0rSamAccountName3 = "BdActr" + $adDomainNetBIOS + "9"
+	$adsiSearcher3 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName3))"
+	$adsiSearcher3.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject3 = $adsiSearcher3.FindOne()
+	Write-Host " > Bad Act0r: $($badAct0rObject3.Properties.samaccountname[0]) | $($badAct0rObject3.Properties.userprincipalname[0]) | $($badAct0rObject3.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+	Try {
+		$schemaIDGUIDScopedObject = "bf967a86-0de6-11d0-a285-00aa003049e2" # Schema ID Guid For Computer ObjectClass
+		$schemaIDGUIDScopedAttribute = "bf967a68-0de6-11d0-a285-00aa003049e2" # Schema ID Guid For userAccountControl attributeClass
+		$domain = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+		$badAct0rSidStringFormat3 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject3.Properties.objectsid),0)).Value
+		$badAct0rSecurityIdentifier3 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat3
+		$badAct0rIdentityReference3 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier3
+		$aceRight3 = [System.DirectoryServices.ActiveDirectoryRights] "ReadProperty","WriteProperty" # Read And Write Property
+		$aceType3 = [System.Security.AccessControl.AccessControlType] "Allow"
+		$aceInheritanceType3 = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "Descendents" # Descendant Objects
+		$ace3 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference3,$aceRight3,$aceType3,$schemaIDGUIDScopedAttribute,$aceInheritanceType3,$schemaIDGUIDScopedObject # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace3)
+		$domain.psbase.commitchanges()
+		Write-Host " > Assigned Read/Write 'userAccountControl' Property On Domain NC For All Computer Objects..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+}
+#################################################################################
+# Set Non-Default SearchFlags On 'ms-Mcs-AdmPwd' AttributeClass
+
+Invoke-Command -ArgumentList $adForestRwdcSchFsmoFQDN,$adForestSchemaNCDN -ScriptBlock{
+	Param(
+		$adForestRwdcSchFsmoFQDN,
+		$adForestSchemaNCDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$msMcsAdmPwdAttributeClassSchemaDN = "CN=ms-Mcs-AdmPwd," + $adForestSchemaNCDN
+
+	Write-Host "Object DN: $msMcsAdmPwdAttributeClassSchemaDN" -ForeGroundColor Magenta
+	Try {
+		$msMcsAdmPwdAttributeClassSchema = [ADSI]("LDAP://" + $adForestRwdcSchFsmoFQDN + "/" + $msMcsAdmPwdAttributeClassSchemaDN)
+		$currentSearchFlags = $msMcsAdmPwdAttributeClassSchema.searchFlags[0]
+        Write-Host " > Current SearchFlags Value: '$currentSearchFlags'" -ForeGroundColor Cyan
+    	$newSearchFlags = $currentSearchFlags -bxor 128 # CONFIDENTIAL Bit Disabled
+    	$newSearchFlags = $newSearchFlags -bxor 256 # NEVER_AUDIT_VALUE Bit Disabled
+    	$newSearchFlags = $newSearchFlags -bxor 512 # RODC_FILTERED Bit Disabled
+    	Try {
+    		$msMcsAdmPwdAttributeClassSchema.Put("searchFlags", $newSearchFlags)
+      		$msMcsAdmPwdAttributeClassSchema.SetInfo()
+    		$msMcsAdmPwdAttributeClassSchema.RefreshCache()
+    		Write-Host " > SearchFlags (CONFIDENTIAL | NEVER_AUDIT_VALUE | RODC_FILTERED) Removed From 'ms-Mcs-AdmPwd' AttributeClass..." -ForeGroundColor Green
+    		Write-Host " > New SearchFlags Value: '$newSearchFlags'" -ForeGroundColor Green
+    	} Catch {
+    		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+    		Write-Host ""
+    		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+    	}
+	} Catch {
+		Write-Host " > LAPS Appears NOT To Be Installed In The AD Schema..." -ForeGroundColor Yellow
+	}
+	Write-Host ""
+}
+#################################################################################
+# Adding Accounts, Without adminCount Being 1, To Built-In Protected Groups (PART 1) (SDProp)
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainNetBIOS,$adDomainSID,$adDomainRwdcPdcFsmoFQDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainNetBIOS,
+		$adDomainSID,
+		$adDomainRwdcPdcFsmoFQDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	# Adding Account To Account Operators Built-In Group
+	$accountOperatorsStringFormat = "S-1-5-32-548" # Built-In Account Operators Domain Local Group (https://ldapwiki.com/wiki/Well-known%20Security%20Identifiers)
+	$accountOperatorsPrincipalName = $(New-Object System.Security.Principal.SecurityIdentifier($accountOperatorsStringFormat)).Translate([System.Security.Principal.NTAccount]).Value
+	$badAct0rSamAccountName1 = "BdActr" + $adDomainNetBIOS + "10"
+	$adsiSearcher1a = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName1))"
+	$adsiSearcher1a.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+	$badAct0rObject1 = $adsiSearcher1a.FindOne()	
+	$adsiSearcher1b = [adsisearcher]"(&(objectCategory=Group)(objectClass=group)(sAMAccountName=$($accountOperatorsPrincipalName.Split("\")[1])))"
+	$adsiSearcher1b.SearchRoot = $domain
+	$accountOperatorsObject = $adsiSearcher1b.FindOne()
+	Write-Host "Object DN: $($accountOperatorsObject.Properties.distinguishedname[0])" -ForeGroundColor Magenta
+	Write-Host " > Bad Act0r (New Member): $($badAct0rObject1.Properties.samaccountname[0]) | $($badAct0rObject1.Properties.userprincipalname[0]) | $($badAct0rObject1.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+	Try {
+		$badAct0rAccount1 = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject1.Properties.distinguishedname[0]))
+		$accountOperatorsGroup = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($accountOperatorsObject.Properties.distinguishedname[0]))
+		$accountOperatorsGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject1.Properties.distinguishedname[0]))
+		$accountOperatorsGroup.SetInfo()
+		[int]$ADS_PROPERTY_CLEAR = 1	# Clear All Values, Specify 0 As The New Value
+		[int]$ADS_PROPERTY_UPDATE = 2	# Replace All Existing Values With Whatever Is Being Set
+		[int]$ADS_PROPERTY_APPEND = 3	# Add To Existing Values With Whatever Is Being Set
+		[int]$ADS_PROPERTY_DELETE = 4	# Delete From Existing Values With Whatever Is Being Removed
+		$badAct0rAccount1.PutEx($ADS_PROPERTY_CLEAR, "adminCount", 0)
+		$badAct0rAccount1.SetInfo()
+		Write-Host " > '$adDomainNetBIOS\$badAct0rSamAccountName1' Added As Member To '$accountOperatorsPrincipalName'..." -ForeGroundColor Green
+		Write-Host " > AdminCount Cleared On '$adDomainNetBIOS\$badAct0rSamAccountName1'..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+
+	# Adding Account To Backup Operators Built-In Group
+	$backupOperatorsStringFormat = "S-1-5-32-551" # Built-In Backup Operators Domain Local Group (https://ldapwiki.com/wiki/Well-known%20Security%20Identifiers)
+	$backupOperatorsPrincipalName = $(New-Object System.Security.Principal.SecurityIdentifier($backupOperatorsStringFormat)).Translate([System.Security.Principal.NTAccount]).Value
+	$badAct0rSamAccountName2 = "BdActr" + $adDomainNetBIOS + "11"
+	$adsiSearcher2a = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName2))"
+	$adsiSearcher2a.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+	$badAct0rObject2 = $adsiSearcher2a.FindOne()
+	$adsiSearcher2b = [adsisearcher]"(&(objectCategory=Group)(objectClass=group)(sAMAccountName=$($backupOperatorsPrincipalName.Split("\")[1])))"
+	$adsiSearcher2b.SearchRoot = $domain
+	$backupOperatorsObject = $adsiSearcher2b.FindOne()
+	Write-Host "Object DN: $($backupOperatorsObject.Properties.distinguishedname[0])" -ForeGroundColor Magenta
+	Write-Host " > Bad Act0r (New Member): $($badAct0rObject2.Properties.samaccountname[0]) | $($badAct0rObject2.Properties.userprincipalname[0]) | $($badAct0rObject2.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+	Try {
+		$badAct0rAccount2 = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject2.Properties.distinguishedname[0]))
+		$backupOperatorsGroup = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($backupOperatorsObject.Properties.distinguishedname[0]))
+		$backupOperatorsGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject2.Properties.distinguishedname[0]))
+		$backupOperatorsGroup.SetInfo()
+		[int]$ADS_PROPERTY_CLEAR = 1	# Clear All Values, Specify 0 As The New Value
+		[int]$ADS_PROPERTY_UPDATE = 2	# Replace All Existing Values With Whatever Is Being Set
+		[int]$ADS_PROPERTY_APPEND = 3	# Add To Existing Values With Whatever Is Being Set
+		[int]$ADS_PROPERTY_DELETE = 4	# Delete From Existing Values With Whatever Is Being Removed
+		$badAct0rAccount2.PutEx($ADS_PROPERTY_CLEAR, "adminCount", 0)
+		$badAct0rAccount2.SetInfo()
+		Write-Host " > '$adDomainNetBIOS\$badAct0rSamAccountName2' Added As Member To '$backupOperatorsPrincipalName'..." -ForeGroundColor Green
+		Write-Host " > AdminCount Cleared On '$adDomainNetBIOS\$badAct0rSamAccountName2'..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+
+	# Adding Account To Server Operators Built-In Group
+	$serverOperatorsStringFormat = "S-1-5-32-549" # Built-In Server Operators Domain Local Group (https://ldapwiki.com/wiki/Well-known%20Security%20Identifiers)
+	$serverOperatorsPrincipalName = $(New-Object System.Security.Principal.SecurityIdentifier($serverOperatorsStringFormat)).Translate([System.Security.Principal.NTAccount]).Value
+	$badAct0rSamAccountName3 = "BdActr" + $adDomainNetBIOS + "12"
+	$adsiSearcher3a = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName3))"
+	$adsiSearcher3a.SearchRoot = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+	$badAct0rObject3 = $adsiSearcher3a.FindOne()
+	$adsiSearcher3b = [adsisearcher]"(&(objectCategory=Group)(objectClass=group)(sAMAccountName=$($serverOperatorsPrincipalName.Split("\")[1])))"
+	$adsiSearcher3b.SearchRoot = $domain
+	$serverOperatorsObject = $adsiSearcher3b.FindOne()
+	Write-Host "Object DN: $($serverOperatorsObject.Properties.distinguishedname[0])" -ForeGroundColor Magenta
+	Write-Host " > Bad Act0r (New Member): $($badAct0rObject3.Properties.samaccountname[0]) | $($badAct0rObject3.Properties.userprincipalname[0]) | $($badAct0rObject3.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+	Try {
+		$badAct0rAccount3 = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject3.Properties.distinguishedname[0]))
+		$serverOperatorsGroup = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($serverOperatorsObject.Properties.distinguishedname[0]))
+		$serverOperatorsGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject3.Properties.distinguishedname[0]))
+		$serverOperatorsGroup.SetInfo()
+		[int]$ADS_PROPERTY_CLEAR = 1	# Clear All Values, Specify 0 As The New Value
+		[int]$ADS_PROPERTY_UPDATE = 2	# Replace All Existing Values With Whatever Is Being Set
+		[int]$ADS_PROPERTY_APPEND = 3	# Add To Existing Values With Whatever Is Being Set
+		[int]$ADS_PROPERTY_DELETE = 4	# Delete From Existing Values With Whatever Is Being Removed
+		$badAct0rAccount3.PutEx($ADS_PROPERTY_CLEAR, "adminCount", 0)
+		$badAct0rAccount3.SetInfo()
+		Write-Host " > '$adDomainNetBIOS\$badAct0rSamAccountName3' Added As Member To '$serverOperatorsPrincipalName'..." -ForeGroundColor Green
+		Write-Host " > AdminCount Cleared On '$adDomainNetBIOS\$badAct0rSamAccountName3'..." -ForeGroundColor Green
+		Write-Host " 	# REMARK: Will Be Repeated Later On To Make Sure It Sticks..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	
+	# Adding Account To Domain Admins Built-In Group
+	$domainAdminsStringFormat = $adDomainSID + "-512" # Domain Admins Global Group
+	$domainAdminsPrincipalName = $(New-Object System.Security.Principal.SecurityIdentifier($domainAdminsStringFormat)).Translate([System.Security.Principal.NTAccount]).Value
+    $badAct0rSamAccountName4 = "BdActr" + $adDomainNetBIOS + "22"
+	$adsiSearcher4a = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName4))"
+	$adsiSearcher4a.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject4 = $adsiSearcher4a.FindOne()
+	$adsiSearcher4b = [adsisearcher]"(&(objectCategory=Group)(objectClass=group)(sAMAccountName=$($domainAdminsPrincipalName.Split("\")[1])))"
+	$adsiSearcher4b.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$domainAdminsObject = $adsiSearcher4b.FindOne()
+	Write-Host "Object DN: $($domainAdminsObject.Properties.distinguishedname[0])" -ForeGroundColor Magenta
+	Write-Host " > Bad Act0r (New Member): $($badAct0rObject4.Properties.samaccountname[0]) | $($badAct0rObject4.Properties.userprincipalname[0]) | $($badAct0rObject4.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+	Try {
+		$badAct0rAccount4 = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject4.Properties.distinguishedname[0]))
+		$domainAdminsGroup = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($domainAdminsObject.Properties.distinguishedname[0]))
+		$domainAdminsGroup.Add("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($badAct0rObject4.Properties.distinguishedname[0]))
+		$domainAdminsGroup.SetInfo()
+		Write-Host " > '$adDomainNetBIOS\$badAct0rSamAccountName4' Added As Member To '$domainAdminsPrincipalName'..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+}
+#################################################################################
+# Set Non-Admin/Non-Privileged User To Read Permissions On 'ms-Mcs-AdmPwd' Attribute Of Computer Accounts, WriteDACL On Computer Accounts, Write Owner On Computer Accounts And/Or Set Owner Of Computer
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainNetBIOS,$adDomainRwdcPdcFsmoFQDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainNetBIOS,
+		$adDomainRwdcPdcFsmoFQDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$schemaIDGUIDScopedAttribute = "8a771fe0-a36b-4788-aca0-e1ee3692bb64" # Schema ID Guid For ms-Mcs-AdmPwd attributeClass
+	$badAct0rSamAccountName1 = "BdActr" + $adDomainNetBIOS + "13"
+	$adsiSearcher1 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName1))"
+	$adsiSearcher1.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject1 = $adsiSearcher1.FindOne()
+	$badAct0rSamAccountName2 = "BdActr" + $adDomainNetBIOS + "14"
+	$adsiSearcher2 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName2))"
+	$adsiSearcher2.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject2 = $adsiSearcher2.FindOne()
+	$badAct0rSamAccountName3 = "BdActr" + $adDomainNetBIOS + "15"
+	$adsiSearcher3 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName3))"
+	$adsiSearcher3.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject3 = $adsiSearcher3.FindOne()
+	$badAct0rSamAccountName4 = "BdActr" + $adDomainNetBIOS + "16"
+	$adsiSearcher4 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName4))"
+	$adsiSearcher4.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject4 = $adsiSearcher4.FindOne()
+	$badAct0rSamAccountName5 = "BdActr" + $adDomainNetBIOS + "17"
+	$adsiSearcher5 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName5))"
+	$adsiSearcher5.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject5 = $adsiSearcher5.FindOne()
+	$computersOU = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $OU)
+	$adsiSearcher = [adsisearcher]"(&(objectCategory=Computer)(objectClass=computer))"
+	$adsiSearcher.SearchRoot = $computersOU
+	$computerObjects = $adsiSearcher.FindAll()
+	$computerObjects | ForEach-Object{
+		Write-Host "Object DN: $($_.properties.distinguishedname[0])" -ForeGroundColor Magenta
+		# Read Property For ms-Mcs-AdmPwd Attribute On Computer Account
+		Try {
+			$computer = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($_.properties.distinguishedname[0]))
+			Write-Host " > Bad Act0r: $($badAct0rObject1.Properties.samaccountname[0]) | $($badAct0rObject1.Properties.userprincipalname[0]) | $($badAct0rObject1.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+			$badAct0rSidStringFormat1 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject1.Properties.objectsid),0)).Value
+			$badAct0rSecurityIdentifier1 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat1
+			$badAct0rIdentityReference1 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier1
+			$aceRight1 = [System.DirectoryServices.ActiveDirectoryRights] "ReadProperty" # Read Property
+			$aceType1 = [System.Security.AccessControl.AccessControlType] "Allow"
+			$aceInheritanceType1 = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None" # This Object Only
+			$ace1 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference1,$aceRight1,$aceType1,$schemaIDGUIDScopedAttribute,$aceInheritanceType1 # Define The ACE To Set
+			$computer.psbase.objectSecurity.AddAccessRule($ace1)
+			$computer.psbase.commitchanges()
+			Write-Host " > Assigned Read Permissions On ms-Mcs-AdmPwd Attribute Of Computer Account..." -ForeGroundColor Green
+		} Catch {
+			Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+			Write-Host ""
+			Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+		}
+		Write-Host ""
+		# Set Owner On Computer Object
+		Try {
+			$computer = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($_.properties.distinguishedname[0]))
+			Write-Host " > Bad Act0r: $($badAct0rObject2.Properties.samaccountname[0]) | $($badAct0rObject2.Properties.userprincipalname[0]) | $($badAct0rObject2.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+			$badAct0rSidStringFormat2 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject2.Properties.objectsid),0)).Value
+			$badAct0rSecurityIdentifier2 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat2
+			$badAct0rIdentityReference2 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier2
+			$computer.psbase.objectSecurity.SetOwner($badAct0rIdentityReference2)
+			$computer.psbase.commitchanges()
+			Write-Host " > Set As Owner Of Computer Account..." -ForeGroundColor Green
+		} Catch {
+			Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+			Write-Host ""
+			Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+		}
+		Write-Host ""
+		# Write DACL On Computer Account
+		Try {
+			$computer = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($_.properties.distinguishedname))
+			Write-Host " > Bad Act0r: $($badAct0rObject3.Properties.samaccountname[0]) | $($badAct0rObject3.Properties.userprincipalname[0]) | $($badAct0rObject3.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+			$badAct0rSidStringFormat3 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject3.Properties.objectsid),0)).Value
+			$badAct0rSecurityIdentifier3 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat3
+			$badAct0rIdentityReference3 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier3
+			$aceRight3 = [System.DirectoryServices.ActiveDirectoryRights] "WriteDACL" # Write DACL
+			$aceType3 = [System.Security.AccessControl.AccessControlType] "Allow"
+			$aceInheritanceType3 = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None" # This Object Only
+			$ace3 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference3,$aceRight3,$aceType3,$aceInheritanceType3 # Define The ACE To Set
+			$computer.psbase.objectSecurity.AddAccessRule($ace3)
+			$computer.psbase.commitchanges()
+			Write-Host " > Assigned Write DACL On Computer Account..." -ForeGroundColor Green
+		} Catch {
+			Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+			Write-Host ""
+			Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+		}
+		Write-Host ""
+		# Write Owner On Computer Account
+		Try {
+			$computer = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($_.properties.distinguishedname[0]))
+			Write-Host " > Bad Act0r: $($badAct0rObject4.Properties.samaccountname[0]) | $($badAct0rObject4.Properties.userprincipalname[0]) | $($badAct0rObject4.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+			$badAct0rSidStringFormat4 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject4.Properties.objectsid),0)).Value
+			$badAct0rSecurityIdentifier4 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat4
+			$badAct0rIdentityReference4 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier4
+			$aceRight4 = [System.DirectoryServices.ActiveDirectoryRights] "WriteOwner" # Write Owner
+			$aceType4 = [System.Security.AccessControl.AccessControlType] "Allow"
+			$aceInheritanceType4 = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None" # This Object Only
+			$ace4 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference4,$aceRight4,$aceType4,$aceInheritanceType4 # Define The ACE To Set
+			$computer.psbase.objectSecurity.AddAccessRule($ace4)
+			$computer.psbase.commitchanges()
+			Write-Host " > Assigned Write Owner On Computer Account..." -ForeGroundColor Green
+		} Catch {
+			Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+			Write-Host ""
+			Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+		}
+		Write-Host ""
+		# Full Control On Computer Account
+		Try {
+			$computer = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $($_.properties.distinguishedname[0]))
+			Write-Host " > Bad Act0r: $($badAct0rObject5.Properties.samaccountname[0]) | $($badAct0rObject5.Properties.userprincipalname[0]) | $($badAct0rObject5.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+			$badAct0rSidStringFormat5 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject5.Properties.objectsid),0)).Value
+			$badAct0rSecurityIdentifier5 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat5
+			$badAct0rIdentityReference5 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier5
+			$aceRight5 = [System.DirectoryServices.ActiveDirectoryRights] "GenericAll" # Full Control
+			$aceType5 = [System.Security.AccessControl.AccessControlType] "Allow"
+			$aceInheritanceType5 = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None" # This Object Only
+			$ace5 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference5,$aceRight5,$aceType5,$aceInheritanceType5 # Define The ACE To Set
+			$computer.psbase.objectSecurity.AddAccessRule($ace5)
+			$computer.psbase.commitchanges()
+			Write-Host " > Assigned Full Control On Computer Account..." -ForeGroundColor Green
+		} Catch {
+			Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+			Write-Host ""
+			Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+		}
+		Write-Host ""
+
+	}
+	Write-Host ""
+}
+#################################################################################
+# Set Non-Admin/Non-Privileged User To Have Replicating Directory Changes All CAR On Domain NC, WriteDACL On Domain NC, Write Owner On Domain NC, Set Owner Of Domain NC And/Or Full Control On Domain NC
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainNetBIOS,$adDomainRwdcPdcFsmoFQDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainNetBIOS,
+		$adDomainRwdcPdcFsmoFQDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	$badAct0rSamAccountName1 = "BdActr" + $adDomainNetBIOS + "17"
+	$adsiSearcher1 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName1))"
+	$adsiSearcher1.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject1 = $adsiSearcher1.FindOne()
+	$badAct0rSamAccountName2 = "BdActr" + $adDomainNetBIOS + "18"
+	$adsiSearcher2 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName2))"
+	$adsiSearcher2.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject2 = $adsiSearcher2.FindOne()
+	$badAct0rSamAccountName3 = "BdActr" + $adDomainNetBIOS + "19"
+	$adsiSearcher3 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName3))"
+	$adsiSearcher3.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject3 = $adsiSearcher3.FindOne()
+	$badAct0rSamAccountName4 = "BdActr" + $adDomainNetBIOS + "20"
+	$adsiSearcher4 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName4))"
+	$adsiSearcher4.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject4 = $adsiSearcher4.FindOne()
+	$badAct0rSamAccountName5 = "BdActr" + $adDomainNetBIOS + "21"
+	$adsiSearcher5 = [adsisearcher]"(&(objectCategory=Person)(objectClass=user)(sAMAccountName=$badAct0rSamAccountName5))"
+	$adsiSearcher5.SearchRoot = [ADSI]"LDAP://$adDomainRwdcPdcFsmoFQDN/$adDomainDN"
+	$badAct0rObject5 = $adsiSearcher5.FindOne()
+	Write-Host "Object DN: $adDomainDN" -ForeGroundColor Magenta
+	# Replicating Directory Changes All On Domain NC
+	Try {
+		$schemaIDGUIDScopedCAR = "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2" # CAR "Replicating Directory Changes All"
+		$domain = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+		Write-Host " > Bad Act0r: $($badAct0rObject1.Properties.samaccountname[0]) | $($badAct0rObject1.Properties.userprincipalname[0]) | $($badAct0rObject1.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+		$badAct0rSidStringFormat1 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject1.Properties.objectsid),0)).Value
+		$badAct0rSecurityIdentifier1 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat1
+		$badAct0rIdentityReference1 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier1
+		$aceRight1 = [System.DirectoryServices.ActiveDirectoryRights] "ExtendedRight" # Control Access Right
+		$aceType1 = [System.Security.AccessControl.AccessControlType] "Allow"
+		$aceInheritanceType1 = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None" # This Object Only
+		$ace1 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference1,$aceRight1,$aceType1,$schemaIDGUIDScopedCAR,$aceInheritanceType1 # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace1)
+		$domain.psbase.commitchanges()
+		Write-Host " > Assigned Replicate Changes All On Domain NC..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	# Set Owner On Domain NC
+	Try {
+		$domain = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+		Write-Host " > Bad Act0r: $($badAct0rObject2.Properties.samaccountname[0]) | $($badAct0rObject2.Properties.userprincipalname[0]) | $($badAct0rObject2.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+		$badAct0rSidStringFormat2 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject2.Properties.objectsid),0)).Value
+		$badAct0rSecurityIdentifier2 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat2
+		$badAct0rIdentityReference2 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier2
+		$domain.psbase.objectSecurity.SetOwner($badAct0rIdentityReference2)
+		$domain.psbase.commitchanges()
+		Write-Host " > Set As Owner Of Domain NC..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	# Write DACL On Domain NC
+	Try {
+		$domain = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+		Write-Host " > Bad Act0r: $($badAct0rObject3.Properties.samaccountname[0]) | $($badAct0rObject3.Properties.userprincipalname[0]) | $($badAct0rObject3.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+		$badAct0rSidStringFormat3 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject3.Properties.objectsid),0)).Value
+		$badAct0rSecurityIdentifier3 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat3
+		$badAct0rIdentityReference3 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier3
+		$aceRight3 = [System.DirectoryServices.ActiveDirectoryRights] "WriteDACL" # Write DACL
+		$aceType3 = [System.Security.AccessControl.AccessControlType] "Allow"
+		$aceInheritanceType3 = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None" # This Object Only
+		$ace3 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference3,$aceRight3,$aceType3,$aceInheritanceType3 # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace3)
+		$domain.psbase.commitchanges()
+		Write-Host " > Assigned Write DACL On Domain NC..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	# Write Owner On Domain NC
+	Try {
+		$domain = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+		Write-Host " > Bad Act0r: $($badAct0rObject4.Properties.samaccountname[0]) | $($badAct0rObject4.Properties.userprincipalname[0]) | $($badAct0rObject4.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+		$badAct0rSidStringFormat4 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject4.Properties.objectsid),0)).Value
+		$badAct0rSecurityIdentifier4 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat4
+		$badAct0rIdentityReference4 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier4
+		$aceRight4 = [System.DirectoryServices.ActiveDirectoryRights] "WriteOwner" # Write Owner
+		$aceType4 = [System.Security.AccessControl.AccessControlType] "Allow"
+		$aceInheritanceType4 = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None" # This Object Only
+		$ace4 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference4,$aceRight4,$aceType4,$aceInheritanceType4 # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace4)
+		$domain.psbase.commitchanges()
+		Write-Host " > Assigned Write Owner On Domain NC..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+	# Full Control On Domain NC
+	Try {
+		$domain = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+		Write-Host " > Bad Act0r: $($badAct0rObject5.Properties.samaccountname[0]) | $($badAct0rObject5.Properties.userprincipalname[0]) | $($badAct0rObject5.Properties.distinguishedname[0])" -ForeGroundColor Cyan
+		$badAct0rSidStringFormat5 = (New-Object System.Security.Principal.SecurityIdentifier($($badAct0rObject5.Properties.objectsid),0)).Value
+		$badAct0rSecurityIdentifier5 = [System.Security.Principal.SecurityIdentifier] $badAct0rSidStringFormat5
+		$badAct0rIdentityReference5 = [System.Security.Principal.IdentityReference] $badAct0rSecurityIdentifier5
+		$aceRight5 = [System.DirectoryServices.ActiveDirectoryRights] "GenericAll" # Full Control
+		$aceType5 = [System.Security.AccessControl.AccessControlType] "Allow"
+		$aceInheritanceType5 = [System.DirectoryServices.ActiveDirectorySecurityInheritance] "None" # This Object Only
+		$ace5 = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $badAct0rIdentityReference5,$aceRight5,$aceType5,$aceInheritanceType5 # Define The ACE To Set
+		$domain.psbase.objectSecurity.AddAccessRule($ace5)
+		$domain.psbase.commitchanges()
+		Write-Host " > Assigned Full Control On Domain NC..." -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+}
+#################################################################################
+# Set Non-Admin/Non-Privileged User As Owner Of Admin/Privileged Accounts
+
+REMARK: This Is Executed As One Of The Very LAST Actions As SDProp Resets The Owner Of Objects That Are Member Of E.g. 'Domain Admins'
+#################################################################################
+# Configure The 'ms-DS-MachineAccountQuota' On The Domain NC To A Non-Zero Value
+
+Invoke-Command -ArgumentList $adDomainDN,$adDomainRwdcPdcFsmoFQDN -ScriptBlock{
+	Param(
+		$adDomainDN,
+		$adDomainRwdcPdcFsmoFQDN
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	Write-Host "Object DN: $adDomainDN" -ForeGroundColor Magenta
+	$domain = [ADSI]("LDAP://" + $adDomainRwdcPdcFsmoFQDN + "/" + $adDomainDN)
+	$currentMachineAccountQuota = $domain."ms-DS-MachineAccountQuota"
+	Write-Host " > Current Machine Account Quota: $currentMachineAccountQuota" -ForeGroundColor Cyan
+	$newMachineAccountQuota = Get-Random -Minimum 1 -Maximum 25
+	Try {
+		$domain.Put("ms-DS-MachineAccountQuota", $newMachineAccountQuota)
+		$domain.SetInfo()
+		Write-Host " > New Machine Account Quota: $newMachineAccountQuota" -ForeGroundColor Green
+	} Catch {
+		Write-Host " > Oops, Something Went Wrong..." -ForeGroundColor Red
+		Write-Host ""
+		Write-Host "Exception Message...: $($_.Exception.Message)" -ForeGroundColor Red
+	}
+	Write-Host ""
+}

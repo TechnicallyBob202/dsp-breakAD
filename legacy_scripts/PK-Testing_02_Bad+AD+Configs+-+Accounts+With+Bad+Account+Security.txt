@@ -1,0 +1,952 @@
+Bad AD Configs - Accounts With Bad Account Security
+REMARK: !!! DO NOT EXECUTE IN ANY PRODUCTION ENVIRONMENT !!!
+REMARK: !!! ALL THIS WILL WEAKEN THE SECURITY POSTURE OF YOUR AD !!!
+REMARK: !!! SOME ACTIONS MIGHT EVEN BREAK YOUR DC(s)/AD !!!
+REMARK: Execute The Code With The Built-In Domain/Enterprise Administrator Account!!!
+REMARK: Execute The Code On A RWDC Of The Corresponding AD Domain!!!
+Import-Module ActiveDirectory
+
+$adDomain = Get-ADDomain -Current LocalComputer
+$adDomainDN = $adDomain.DistinguishedName
+$adDomainFQDN = $adDomain.DNSRoot
+$adDomainNetBIOS = $adDomain.NetBIOSName
+$adDomainDeletedObjectsContainerDN = $adDomain.DeletedObjectsContainer
+$adDomainDomainControllersContainerDN = $adDomain.DomainControllersContainer
+$adDomainSID = $adDomain.DomainSID.Value
+$adDomainRwdcPdcFsmoFQDN = $adDomain.PDCEmulator
+$adDomainRwdcFQDN = (Get-ADDomainController -DomainName $adDomainFQDN -Discover).HostName[0]
+$OU = "OU=TEST,$adDomainDN"
+If ((Get-ADObject -SearchBase $adDomainDN -LDAPFilter "(distinguishedName=$OU)") -eq $null) {
+	New-ADOrganizationalUnit -Name $($OU.Split(",")[0].Replace("OU=","")) -Path $adDomainDN
+}
+
+$adForest = Get-ADForest -Current LocalComputer
+$adForestRootDomainFQDN = $adForest.RootDomain
+$adForestRootDomain = Get-ADDomain $adForestRootDomainFQDN
+$adForestRootDomainNetBIOS = $adForestRootDomain.NetBIOSName
+$adForestRootDomainSID = $adForestRootDomain.DomainSID.Value
+$adForestRwdcSchFsmoFQDN = $adForest.SchemaMaster
+$adForestRwdcDnmFsmoFQDN = $adForest.DomainNamingMaster
+$adForestPartitionsContainerDN = $adForest.PartitionsContainer
+$adForestConfigNCDN = $adForestPartitionsContainerDN.Replace("CN=Partitions,","")
+$adForestSchemaNCDN = "CN=Schema," + $adForestConfigNCDN
+#################################################################################
+# User Accounts With Bad Account Security
+
+#REMARK: Requires The Clonepr.dll
+#REMARK: Remote AD Forest To Source The ObjectSIDs From MUST Be Available
+#REMARK: MUST Run In PowerShell x86 Window And NOT In x64!
+
+Invoke-Command -ArgumentList $adDomainFQDN,$adDomainRwdcFQDN,$OU -ScriptBlock {
+	Param (
+		$adDomainFQDN,
+		$adDomainRwdcFQDN,
+		$OU
+	)
+
+	Clear-Host
+	
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+    $cloneprDLLPath = "D:\Support-Stuff\ADDS\sIDHistory\clonepr.dll"
+    
+  	If (!(Test-Path $cloneprDLLPath)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: The 'clonepr.dll' Does Not Exist At The Specified Path!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+    
+	REGSVR32.EXE $cloneprDLLPath
+
+	Start-Sleep -s 10
+
+	# sIDHistory - SOURCE AD
+	$sourceDomain = "PARTNER.LAN"
+	$sourceDC = "R2FSRWDC1.PARTNER.LAN"
+
+	# sIDHistory - TARGET
+	$targetDomain = $adDomainFQDN
+	$targetDC = $adDomainRwdcFQDN
+
+	Write-Host ""
+	Write-Host "WARNING: Admin Rights Needed In Source AD Forest '$sourceDomain'..." -ForegroundColor Red
+	Write-Host ""
+
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+
+	function Add-SidHistory {
+		Param(
+			$sourceDC,
+			$sourceDomain,
+			$sourceUsername,
+			$targetDC,
+			$targetDomain,
+			$TargetUsername
+		)
+		$clonePrincipal = New-Object -COMObject DSUtils.ClonePrincipal
+		$clonePrincipal.Connect($sourceDC, $sourceDomain, $targetDC, $targetDomain)
+		$clonePrincipal.AddSidHistory($sourceUsername, $targetUsername, 0)
+	}
+
+	# USER WITH: PASSWORD NEVER EXPIRES
+	Write-Host "USER WITH: PASSWORD NEVER EXPIRES" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: PASSWORD NEVER EXPIRES" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("USER" + $randomNr) -PasswordNeverExpires $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: SENSITIVE AND NOT DELEGATABLE
+	Write-Host "USER WITH: SENSITIVE AND NOT DELEGATABLE" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: SENSITIVE AND NOT DELEGATABLE" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("USER" + $randomNr) -AccountNotDelegated $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: DOES NOT REQUIRE PRE-AUTH
+	Write-Host "USER WITH: DOES NOT REQUIRE PRE-AUTH" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: DOES NOT REQUIRE PRE-AUTH" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("USER" + $randomNr) -DoesNotRequirePreAuth $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: USE DES KEYS ONLY
+	Write-Host "USER WITH: USE DES KEYS ONLY" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: USE DES KEYS ONLY" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("USER" + $randomNr) -UseDESKeyOnly $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: PASSWORD NOT REQUIRED BUT WITH PASSWORD
+	Write-Host "USER WITH: PASSWORD NOT REQUIRED BUT WITH PASSWORD" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: PASSWORD NOT REQUIRED BUT WITH PASSWORD" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("USER" + $randomNr) -PasswordNotRequired $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: PASSWORD NOT REQUIRED BUT WITHOUT PASSWORD
+	Write-Host "USER WITH: PASSWORD NOT REQUIRED BUT WITHOUT PASSWORD" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $false -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: PASSWORD NOT REQUIRED BUT WITHOUT PASSWORD" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("USER" + $randomNr) -PasswordNotRequired $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: KERBEROS ENCRYPTION TYPE: DES
+	Write-Host "USER WITH: KERBEROS ENCRYPTION TYPE: DES" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: KERBEROS ENCRYPTION TYPE: DES" -KerberosEncryptionType DES -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: KERBEROS ENCRYPTION TYPE: RC4
+	Write-Host "USER WITH: KERBEROS ENCRYPTION TYPE: RC4" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: KERBEROS ENCRYPTION TYPE: RC4" -KerberosEncryptionType RC4 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: KERBEROS ENCRYPTION TYPE: AES128
+	Write-Host "USER WITH: KERBEROS ENCRYPTION TYPE: AES128" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: KERBEROS ENCRYPTION TYPE: AES128" -KerberosEncryptionType AES128 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: KERBEROS ENCRYPTION TYPE: AES256
+	Write-Host "USER WITH: KERBEROS ENCRYPTION TYPE: AES256" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: KERBEROS ENCRYPTION TYPE: AES256" -KerberosEncryptionType AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: KERBEROS ENCRYPTION TYPE: AES128,AES256
+	Write-Host "USER WITH: KERBEROS ENCRYPTION TYPE: AES128,AES256" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: KERBEROS ENCRYPTION TYPE: AES128,AES256" -KerberosEncryptionType AES128, AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: KERBEROS ENCRYPTION TYPE: RC4,AES128,AES256
+	Write-Host "USER WITH: KERBEROS ENCRYPTION TYPE: RC4,AES128,AES256" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: KERBEROS ENCRYPTION TYPE: RC4,AES128,AES256" -KerberosEncryptionType RC4, AES128, AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: KERBEROS ENCRYPTION TYPE: DES,RC4,AES128,AES256
+	Write-Host "USER WITH: KERBEROS ENCRYPTION TYPE: DES,RC4,AES128,AES256" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: KERBEROS ENCRYPTION TYPE: DES,RC4,AES128,AES256" -KerberosEncryptionType DES, RC4, AES128, AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: KERBEROS ENCRYPTION TYPE: DES,AES256
+	Write-Host "USER WITH: KERBEROS ENCRYPTION TYPE: DES,AES256" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: KERBEROS ENCRYPTION TYPE: DES,AES256" -KerberosEncryptionType DES, AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: KERBEROS ENCRYPTION TYPE: DES,RC4
+	Write-Host "USER WITH: KERBEROS ENCRYPTION TYPE: DES,RC4" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: KERBEROS ENCRYPTION TYPE: DES,RC4" -KerberosEncryptionType DES, RC4 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: SPNs
+	Write-Host "USER WITH: SPNs" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: SPNs" -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: ACCOUNT BASED UNCONSTRAINED DELEGATION
+	Write-Host "USER WITH: ACCOUNT BASED UNCONSTRAINED DELEGATION" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: ACCOUNT BASED UNCONSTRAINED DELEGATION" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("USER" + $randomNr) -TrustedForDelegation $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND NO SERVICES LIST
+	Write-Host "USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND NO SERVICES LIST" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND NO SERVICES LIST" -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("USER" + $randomNr) -TrustedToAuthForDelegation $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST
+	Write-Host "USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST" -Add @{"msDS-AllowedToDelegateTo" = @("MSSQLSvc/$randomNr:1433", "MSSQLSvc/$randomNr.$adDomainFQDN:1433") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("USER" + $randomNr) -TrustedToAuthForDelegation $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST (DC SERVICES)
+	Write-Host "USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST (DC SERVICES)" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST (DC SERVICES)" -Add @{"msDS-AllowedToDelegateTo" = @("HOST/$adDomainRwdcPdcFsmoFQDN", "GC/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "ldap/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "RestrictedKrbHost/$adDomainRwdcPdcFsmoFQDN") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("USER" + $randomNr) -TrustedToAuthForDelegation $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST
+	Write-Host "USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST" -Add @{"msDS-AllowedToDelegateTo" = @("MSSQLSvc/$randomNr:1433", "MSSQLSvc/$randomNr.$adDomainFQDN:1433") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+	
+	# USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST (DC SERVICES)
+	Write-Host "USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST (DC SERVICES)" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST (DC SERVICES)" -Add @{"msDS-AllowedToDelegateTo" = @("HOST/$adDomainRwdcPdcFsmoFQDN", "GC/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "ldap/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "RestrictedKrbHost/$adDomainRwdcPdcFsmoFQDN") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: RESOURCE BASED DELEGATION
+	Write-Host "USER WITH: RESOURCE BASED DELEGATION" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: RESOURCE BASED DELEGATION" -PrincipalsAllowedToDelegateToAccount $(Get-ADUser -Identity ((New-Object System.Security.Principal.SecurityIdentifier($((Get-ADDomain -Current LocalComputer).DomainSID.Value + "-500"))).Translate( [System.Security.Principal.NTAccount]).Value).Split("\")[1]) -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: SIDHISTORY
+	Write-Host "USER WITH: SIDHISTORY" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: SIDHISTORY" -Server $adDomainRwdcFQDN
+	Add-SidHistory $sourceDC $sourceDomain $($($(Get-ADUser -SearchBase $("DC=" + $sourceDomain.Replace(".", ",DC=")) -LDAPFilter "(name=USER202*)" -Server $sourceDC)[$(Get-Random -Minimum 1 -Maximum 10)]).SamAccountName) $targetDC $targetDomain $("USER" + $randomNr)
+	Start-Sleep -s 1
+
+	# USER WITH: LM-HASHES
+	Write-Host "USER WITH: LM-HASHES" -ForegroundColor Magenta
+	Write-Host "Enable LM-HASH SUPPORT In GPO (Network security: Do not store LAN Manager hash value on next password change)" -ForeGroundColor Red
+	Write-Host "Perform GPUPDATE /FORCE" -ForeGroundColor Red
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 14)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: LM-HASHES" -Server $adDomainRwdcFQDN
+	Write-Host "Disable LM-HASH SUPPORT In GPO" -ForeGroundColor Red
+	Write-Host "Perform GPUPDATE /FORCE" -ForeGroundColor Red
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	Start-Sleep -s 1
+
+	# USER WITH: PASSWORD REVERSIBLE ENCRYPTION BEFORE SETTING
+	Write-Host "USER WITH: PASSWORD REVERSIBLE ENCRYPTION BEFORE SETTING" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: PASSWORD REVERSIBLE ENCRYPTION BEFORE SETTING" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("USER" + $randomNr) -AllowReversiblePasswordEncryption $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: PASSWORD REVERSIBLE ENCRYPTION AFTER SETTING
+	Write-Host "USER WITH: PASSWORD REVERSIBLE ENCRYPTION AFTER SETTING" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: PASSWORD REVERSIBLE ENCRYPTION AFTER SETTING" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("USER" + $randomNr) -AllowReversiblePasswordEncryption $true -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("USER" + $randomNr) -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Start-Sleep -s 1
+
+	# USER WITH: COMPROMISED PASSWORD
+	Write-Host "USER WITH: COMPROMISED PASSWORD" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString "welcome" -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -Description "USER WITH: COMPROMISED PASSWORD" -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: SMARTCARD REQUIRED
+	Write-Host "USER WITH: SMARTCARD REQUIRED" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString "welcome" -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -SmartcardLogonRequired $true -Description "USER WITH: SMARTCARD REQUIRED" -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: SMARTCARD REQUIRED
+	Write-Host "USER WITH: SMARTCARD REQUIRED" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString "welcome" -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -SmartcardLogonRequired $true -Description "USER WITH: SMARTCARD REQUIRED" -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# USER WITH: SMARTCARD REQUIRED
+	Write-Host "USER WITH: SMARTCARD REQUIRED" -ForegroundColor Magenta
+	$randomNr = (Get-Date -Format "yyyyMMddHHmmss").ToString() + (Get-Random -Minimum 10 -Maximum 99)
+	New-ADUser -Path $OU -Enabled $true -Name $("USER" + $randomNr) -GivenName "USER" -Surname $randomNr -DisplayName $("USER" + $randomNr) -SamAccountName $("USER" + $randomNr) -UserPrincipalName "USER.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString "welcome" -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADUser -Identity $("USER" + $randomNr) -SmartcardLogonRequired $true -Description "USER WITH: SMARTCARD REQUIRED" -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	Write-Host ""
+}
+#################################################################################
+# Gmsa Accounts With Bad Account Security
+
+Invoke-Command -ArgumentList $adDomainFQDN,$adDomainRwdcFQDN,$OU -ScriptBlock {
+	Param (
+		$adDomainFQDN,
+		$adDomainRwdcFQDN,
+		$OU
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	# GMSA WITH: SENSITIVE AND NOT DELEGATABLE
+	Write-Host "GMSA WITH: SENSITIVE AND NOT DELEGATABLE" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: SENSITIVE AND NOT DELEGATABLE" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("GMSA" + $randomNr + "`$") -AccountNotDelegated $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: DOES NOT REQUIRE PRE-AUTH
+	Write-Host "GMSA WITH: DOES NOT REQUIRE PRE-AUTH" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: DOES NOT REQUIRE PRE-AUTH" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("GMSA" + $randomNr + "`$") -DoesNotRequirePreAuth $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: USE DES KEYS ONLY
+	Write-Host "GMSA WITH: USE DES KEYS ONLY" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: USE DES KEYS ONLY" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("GMSA" + $randomNr + "`$") -UseDESKeyOnly $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: PASSWORD NOT REQUIRED BUT WITH PASSWORD
+	Write-Host "GMSA WITH: PASSWORD NOT REQUIRED BUT WITH PASSWORD" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: PASSWORD NOT REQUIRED BUT WITH PASSWORD" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("GMSA" + $randomNr + "`$") -PasswordNotRequired $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: PASSWORD NOT REQUIRED BUT WITHOUT PASSWORD
+	Write-Host "GMSA WITH: PASSWORD NOT REQUIRED BUT WITHOUT PASSWORD" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: PASSWORD NOT REQUIRED BUT WITHOUT PASSWORD" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("GMSA" + $randomNr + "`$") -PasswordNotRequired $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: KERBEROS ENCRYPTION TYPE: DES
+	Write-Host "GMSA WITH: KERBEROS ENCRYPTION TYPE: DES" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: KERBEROS ENCRYPTION TYPE: DES" -KerberosEncryptionType DES -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: KERBEROS ENCRYPTION TYPE: RC4
+	Write-Host "GMSA WITH: KERBEROS ENCRYPTION TYPE: RC4" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: KERBEROS ENCRYPTION TYPE: RC4" -KerberosEncryptionType RC4 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: KERBEROS ENCRYPTION TYPE: AES128
+	Write-Host "GMSA WITH: KERBEROS ENCRYPTION TYPE: AES128" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: KERBEROS ENCRYPTION TYPE: AES128" -KerberosEncryptionType AES128 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: KERBEROS ENCRYPTION TYPE: AES256
+	Write-Host "GMSA WITH: KERBEROS ENCRYPTION TYPE: AES256" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: KERBEROS ENCRYPTION TYPE: AES256" -KerberosEncryptionType AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: KERBEROS ENCRYPTION TYPE: AES128,AES256
+	Write-Host "GMSA WITH: KERBEROS ENCRYPTION TYPE: AES128,AES256" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: KERBEROS ENCRYPTION TYPE: AES128,AES256" -KerberosEncryptionType AES128,AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: KERBEROS ENCRYPTION TYPE: RC4,AES128,AES256
+	Write-Host "GMSA WITH: KERBEROS ENCRYPTION TYPE: RC4,AES128,AES256" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: KERBEROS ENCRYPTION TYPE: RC4,AES128,AES256" -KerberosEncryptionType RC4,AES128,AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: KERBEROS ENCRYPTION TYPE: DES,RC4,AES128,AES256
+	Write-Host "GMSA WITH: KERBEROS ENCRYPTION TYPE: DES,RC4,AES128,AES256" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: KERBEROS ENCRYPTION TYPE: DES,RC4,AES128,AES256" -KerberosEncryptionType DES,RC4,AES128,AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: KERBEROS ENCRYPTION TYPE: DES,AES256
+	Write-Host "GMSA WITH: KERBEROS ENCRYPTION TYPE: DES,AES256" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: KERBEROS ENCRYPTION TYPE: DES,AES256" -KerberosEncryptionType DES,AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: KERBEROS ENCRYPTION TYPE: DES,RC4
+	Write-Host "GMSA WITH: KERBEROS ENCRYPTION TYPE: DES,RC4" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: KERBEROS ENCRYPTION TYPE: DES,RC4" -KerberosEncryptionType DES,RC4 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: SPNs
+	Write-Host "GMSA WITH: SPNs" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: SPNs" -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: ACCOUNT BASED UNCONSTRAINED DELEGATION
+	Write-Host "GMSA WITH: ACCOUNT BASED UNCONSTRAINED DELEGATION" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: ACCOUNT BASED UNCONSTRAINED DELEGATION" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("GMSA" + $randomNr + "`$") -TrustedForDelegation $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND NO SERVICES LIST
+	Write-Host "GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND NO SERVICES LIST" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND NO SERVICES LIST" -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("GMSA" + $randomNr + "`$") -TrustedToAuthForDelegation $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST
+	Write-Host "GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST" -Add @{"msDS-AllowedToDelegateTo" = @("MSSQLSvc/$randomNr:1433", "MSSQLSvc/$randomNr.$adDomainFQDN:1433") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("GMSA" + $randomNr + "`$") -TrustedToAuthForDelegation $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST (DC SERVICES)
+	Write-Host "GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST (DC SERVICES)" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST (DC SERVICES)" -Add @{"msDS-AllowedToDelegateTo" = @("HOST/$adDomainRwdcPdcFsmoFQDN", "GC/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "ldap/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "RestrictedKrbHost/$adDomainRwdcPdcFsmoFQDN") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("GMSA" + $randomNr + "`$") -TrustedToAuthForDelegation $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST
+	Write-Host "GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST" -Add @{"msDS-AllowedToDelegateTo" = @("MSSQLSvc/$randomNr:1433", "MSSQLSvc/$randomNr.$adDomainFQDN:1433") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST (DC SERVICES)
+	Write-Host "GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST (DC SERVICES)" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST (DC SERVICES)" -Add @{"msDS-AllowedToDelegateTo" = @("HOST/$adDomainRwdcPdcFsmoFQDN", "GC/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "ldap/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "RestrictedKrbHost/$adDomainRwdcPdcFsmoFQDN") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN" } -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: RESOURCE BASED DELEGATION
+	Write-Host "GMSA WITH: RESOURCE BASED DELEGATION" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -PrincipalsAllowedToRetrieveManagedPassword $(Get-ADObject -Filter "SamAccountName -eq '$("GroupGMSA" + $randomNr)'" -Server $adDomainRwdcFQDN) -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: RESOURCE BASED DELEGATION" -PrincipalsAllowedToDelegateToAccount $(Get-ADUser -Identity ((New-Object System.Security.Principal.SecurityIdentifier($((Get-ADDomain -Current LocalComputer).DomainSID.Value + "-500"))).Translate( [System.Security.Principal.NTAccount]).Value).Split("\")[1]) -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# GMSA WITH: LM-HASHES
+	Write-Host "GMSA WITH: LM-HASHES" -ForegroundColor Magenta
+	Write-Host "Enable LM-HASH SUPPORT In GPO (Network security: Do not store LAN Manager hash value on next password change)" -ForeGroundColor Red
+	Write-Host "Perform GPUPDATE /FORCE" -ForeGroundColor Red
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADGroup -Path $OU -GroupCategory Security -GroupScope Universal -Name $("GroupGMSA" + $randomNr) -SamAccountName $("GroupGMSA" + $randomNr) -DisplayName $("GroupGMSA" + $randomNr) -Description "Password Access Group for Gmsa 'GMSA$randomNr'" -Server $adDomainRwdcFQDN
+	New-ADServiceAccount -Path $OU -Name $("GMSA" + $randomNr) -SamAccountName $("GMSA" + $randomNr) -DisplayName $("GMSA" + $randomNr) -DNSHostName $($randomNr + "." + $adDomainFQDN) -Enabled $true -ManagedPasswordIntervalInDays 30 -CompoundIdentitySupported $true -Server $adDomainRwdcFQDN
+	Set-ADServiceAccount -Identity $("GMSA" + $randomNr) -Description "GMSA WITH: LM-HASHES" -Server $adDomainRwdcFQDN
+	Write-Host "Disable LM-HASH SUPPORT In GPO" -ForeGroundColor Red
+	Write-Host "Perform GPUPDATE /FORCE" -ForeGroundColor Red
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	Start-Sleep -s 1
+
+	Write-Host ""
+}
+#################################################################################
+# Computer Accounts With Bad Account Security
+
+Invoke-Command -ArgumentList $adDomainFQDN,$adDomainRwdcFQDN,$OU -ScriptBlock {
+	Param (
+		$adDomainFQDN,
+		$adDomainRwdcFQDN,
+		$OU
+	)
+
+	Clear-Host
+
+	If (!([Environment]::Is64BitProcess)) {
+	
+		Write-Host ""
+		Write-Host "WARNING: A PowerShell x64 Command Prompt Is Required!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+
+	If ((Get-Wmiobject -Class 'Win32_computersystem' -ComputerName $ENV:COMPUTERNAME).DomainRole -ne 5) {
+	
+		Write-Host ""
+		Write-Host "WARNING: Please Execute This On The RWDC With The PDC FSMO!..." -ForegroundColor Red
+		Write-Host ""
+		
+		BREAK
+	}
+	
+    # https://en.wikipedia.org/wiki/List_of_Microsoft_Windows_versions
+
+	# COMPUTER WITH: PASSWORD NEVER EXPIRES
+	Write-Host "COMPUTER WITH: PASSWORD NEVER EXPIRES" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "5.0 (2195)" -Description "COMPUTER WITH: PASSWORD NEVER EXPIRES" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("COMP" + $randomNr + "`$") -PasswordNeverExpires $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: SENSITIVE AND NOT DELEGATABLE
+	Write-Host "COMPUTER WITH: SENSITIVE AND NOT DELEGATABLE" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "5.0 (2195)" -Description "COMPUTER WITH: SENSITIVE AND NOT DELEGATABLE" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("COMP" + $randomNr + "`$") -AccountNotDelegated $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: PASSWORD NOT REQUIRED BUT WITH PASSWORD
+	Write-Host "COMPUTER WITH: PASSWORD NOT REQUIRED BUT WITH PASSWORD" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "5.1 (2600)" -Description "COMPUTER WITH: PASSWORD NOT REQUIRED BUT WITH PASSWORD" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("COMP" + $randomNr + "`$") -PasswordNotRequired $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: PASSWORD NOT REQUIRED BUT WITHOUT PASSWORD
+	Write-Host "COMPUTER WITH: PASSWORD NOT REQUIRED BUT WITHOUT PASSWORD" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $false -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "5.1 (2600)" -Description "COMPUTER WITH: PASSWORD NOT REQUIRED BUT WITHOUT PASSWORD" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("COMP" + $randomNr + "`$") -PasswordNotRequired $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: KERBEROS ENCRYPTION TYPE: DES
+	Write-Host "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: DES" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "5.2 (2715)" -Description "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: DES" -KerberosEncryptionType DES -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: KERBEROS ENCRYPTION TYPE: RC4
+	Write-Host "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: RC4" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "5.2 (2715)" -Description "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: RC4" -KerberosEncryptionType RC4 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: KERBEROS ENCRYPTION TYPE: AES128
+	Write-Host "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: AES128" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "5.2 (3790)" -Description "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: AES128" -KerberosEncryptionType AES128 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: KERBEROS ENCRYPTION TYPE: AES256
+	Write-Host "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: AES256" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "5.2 (3790)" -Description "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: AES256" -KerberosEncryptionType AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: KERBEROS ENCRYPTION TYPE: AES128,AES256
+	Write-Host "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: AES128,AES256" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "6.1 (7601)" -Description "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: AES128,AES256" -KerberosEncryptionType AES128, AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: KERBEROS ENCRYPTION TYPE: RC4,AES128,AES256
+	Write-Host "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: RC4,AES128,AES256" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "6.1 (7601)" -Description "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: RC4,AES128,AES256" -KerberosEncryptionType RC4, AES128, AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: KERBEROS ENCRYPTION TYPE: DES,RC4,AES128,AES256
+	Write-Host "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: DES,RC4,AES128,AES256" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "6.2 (9200)" -Description "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: DES,RC4,AES128,AES256" -KerberosEncryptionType DES, RC4, AES128, AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: KERBEROS ENCRYPTION TYPE: DES,AES256
+	Write-Host "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: DES,AES256" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "6.2 (9200)" -Description "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: DES,AES256" -KerberosEncryptionType DES, AES256 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: KERBEROS ENCRYPTION TYPE: DES,RC4
+	Write-Host "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: DES,RC4" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "6.3 (9600)" -Description "COMPUTER WITH: KERBEROS ENCRYPTION TYPE: DES,RC4" -KerberosEncryptionType DES, RC4 -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: SPNs
+	Write-Host "COMPUTER WITH: SPNs" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "6.3 (9600)" -Description "COMPUTER WITH: SPNs" -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN", "E3514235-4B06-11D1-AB04-00C04FC2DCD2/$((New-Guid).Guid)/$adDomainFQDN"} -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: ACCOUNT BASED UNCONSTRAINED DELEGATION
+	Write-Host "COMPUTER WITH: ACCOUNT BASED UNCONSTRAINED DELEGATION" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "10.0 (17763)" -Description "COMPUTER WITH: ACCOUNT BASED UNCONSTRAINED DELEGATION" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("COMP" + $randomNr + "`$") -TrustedForDelegation $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND NO SERVICES LIST
+	Write-Host "COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND NO SERVICES LIST" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "10.0 (17763)" -Description "COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND NO SERVICES LIST" -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN", "E3514235-4B06-11D1-AB04-00C04FC2DCD2/$((New-Guid).Guid)/$adDomainFQDN"} -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("COMP" + $randomNr + "`$") -TrustedToAuthForDelegation $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST
+	Write-Host "COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "10.0 (19042)" -Description "COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST" -Add @{"msDS-AllowedToDelegateTo" = @("MSSQLSvc/$randomNr:1433", "MSSQLSvc/$randomNr.$adDomainFQDN:1433") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN", "E3514235-4B06-11D1-AB04-00C04FC2DCD2/$((New-Guid).Guid)/$adDomainFQDN"} -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("COMP" + $randomNr + "`$") -TrustedToAuthForDelegation $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+	
+	# COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST (DC SERVICES)
+	Write-Host "COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST (DC SERVICES)" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "10.0 (19042)" -Description "COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (ANY AUTH) AND SERVICES LIST (DC SERVICES)" -Add @{"msDS-AllowedToDelegateTo" = @("HOST/$adDomainRwdcPdcFsmoFQDN", "GC/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "ldap/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "RestrictedKrbHost/$adDomainRwdcPdcFsmoFQDN") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN", "E3514235-4B06-11D1-AB04-00C04FC2DCD2/$((New-Guid).Guid)/$adDomainFQDN"} -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("COMP" + $randomNr + "`$") -TrustedToAuthForDelegation $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST
+	Write-Host "COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "10.0 (19042)" -Description "COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST" -Add @{"msDS-AllowedToDelegateTo" = @("MSSQLSvc/$randomNr:1433", "MSSQLSvc/$randomNr.$adDomainFQDN:1433") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN"} -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST (DC SERVICES)
+	Write-Host "COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST (DC SERVICES)" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "10.0 (19042)" -Description "COMPUTER WITH: ACCOUNT BASED CONSTRAINED DELEGATION (KERBEROS AUTH) AND SERVICES LIST (DC SERVICES)" -Add @{"msDS-AllowedToDelegateTo" = @("HOST/$adDomainRwdcPdcFsmoFQDN", "GC/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "ldap/$adDomainRwdcPdcFsmoFQDN/$adDomainFQDN", "RestrictedKrbHost/$adDomainRwdcPdcFsmoFQDN") } -ServicePrincipalNames @{Add = "HTTP/$randomNr.111.$adDomainFQDN", "HTTP/$randomNr.222.$adDomainFQDN"} -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: RESOURCE BASED DELEGATION
+	Write-Host "COMPUTER WITH: RESOURCE BASED DELEGATION" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Description "COMPUTER WITH: RESOURCE BASED DELEGATION" -PrincipalsAllowedToDelegateToAccount $(Get-ADUser -Identity ((New-Object System.Security.Principal.SecurityIdentifier($((Get-ADDomain -Current LocalComputer).DomainSID.Value + "-500"))).Translate( [System.Security.Principal.NTAccount]).Value).Split("\")[1]) -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: LM-HASHES
+	Write-Host "COMPUTER WITH: LM-HASHES" -ForegroundColor Magenta
+	Write-Host "Enable LM-HASH SUPPORT In GPO (Network security: Do not store LAN Manager hash value on next password change)" -ForeGroundColor Red
+	Write-Host "Perform GPUPDATE /FORCE" -ForeGroundColor Red
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 14)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Description "COMPUTER WITH: LM-HASHES" -Server $adDomainRwdcFQDN
+	Write-Host "Disable LM-HASH SUPPORT In GPO" -ForeGroundColor Red
+	Write-Host "Perform GPUPDATE /FORCE" -ForeGroundColor Red
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: PASSWORD REVERSIBLE ENCRYPTION BEFORE SETTING
+	Write-Host "COMPUTER WITH: PASSWORD REVERSIBLE ENCRYPTION BEFORE SETTING" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Description "COMPUTER WITH: PASSWORD REVERSIBLE ENCRYPTION BEFORE SETTING" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("COMP" + $randomNr + "`$") -AllowReversiblePasswordEncryption $true -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: PASSWORD REVERSIBLE ENCRYPTION AFTER SETTING
+	Write-Host "COMPUTER WITH: PASSWORD REVERSIBLE ENCRYPTION AFTER SETTING" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Description "COMPUTER WITH: PASSWORD REVERSIBLE ENCRYPTION AFTER SETTING" -Server $adDomainRwdcFQDN
+	Set-ADAccountControl -Identity $("COMP" + $randomNr + "`$") -AllowReversiblePasswordEncryption $true -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("COMP" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Start-Sleep -s 1
+
+	# COMPUTER WITH: COMPROMISED PASSWORD
+	Write-Host "COMPUTER WITH: COMPROMISED PASSWORD" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	New-ADComputer -Path $OU -Enabled $true -Name $("COMP" + $randomNr) -DisplayName $("COMP" + $randomNr) -SamAccountName $("COMP" + $randomNr) -UserPrincipalName "COMP.$randomNr@$adDomainFQDN" -DNSHostName $($randomNr + "." + $adDomainFQDN) -AccountPassword $(ConvertTo-SecureString "welcome" -AsPlainText -Force) -Server $adDomainRwdcFQDN
+	Set-ADComputer -Identity $("COMP" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Description "COMPUTER WITH: COMPROMISED PASSWORD" -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	$adsiSearcher = [adsisearcher]"(&(objectCategory=Site)(objectClass=site))"
+	$adsiSearcher.SearchRoot = [ADSI]"LDAP://$adForestRwdcDnmFsmoFQDN/CN=Sites,$adForestConfigNCDN"
+	$adSiteObject = $adsiSearcher.FindOne()
+    $adsiteNameForRODCs = $adSiteObject.Properties.name[0]
+
+	# DOMAIN CONTROLLER (RODC) - Enabled Account
+	Write-Host "DOMAIN CONTROLLER (RODC) - Enabled Account" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $true -Description "DOMAIN CONTROLLER (RODC) - Enabled Account" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Start-Sleep -s 1
+	
+	# DOMAIN CONTROLLER (RODC) - Enabled Account
+	Write-Host "DOMAIN CONTROLLER (RODC) - Enabled Account" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $true -Description "DOMAIN CONTROLLER (RODC) - Enabled Account" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Start-Sleep -s 1
+	
+	# DOMAIN CONTROLLER (RODC) - Enabled Account
+	Write-Host "DOMAIN CONTROLLER (RODC)" - Enabled Account -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $true -Description "DOMAIN CONTROLLER (RODC) - Enabled Account" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Start-Sleep -s 1
+	
+	# DOMAIN CONTROLLER (RODC) - Enabled Account
+	Write-Host "DOMAIN CONTROLLER (RODC) - Enabled Account" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $true -Description "DOMAIN CONTROLLER (RODC) - Enabled Account" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Start-Sleep -s 1
+	
+	# DOMAIN CONTROLLER (RODC) - Enabled Account
+	Write-Host "DOMAIN CONTROLLER (RODC) - Enabled Account" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $true -Description "DOMAIN CONTROLLER (RODC) - Enabled Account" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Start-Sleep -s 1
+	
+	# DOMAIN CONTROLLER (RODC) - Enabled Account (No Server Object And No NTDS Settings Object)
+	Write-Host "DOMAIN CONTROLLER (RODC) - Enabled Account - No Server Object And No NTDS Settings Object" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $true -Description "DOMAIN CONTROLLER (RODC) - Enabled Account - No Server Object And No NTDS Settings Object" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Remove-ADobject -Identity $("CN=" + $("RODC" + $randomNr) + ",CN=Servers,CN=" + $adsiteNameForRODCs + ",CN=Sites," + $adForestConfigNCDN) -Recursive -confirm:$false -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+	
+	# DOMAIN CONTROLLER (RODC) - Enabled Account (No Server Object And No NTDS Settings Object)
+	Write-Host "DOMAIN CONTROLLER (RODC) - Enabled Account - No Server Object And No NTDS Settings Object" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $true -Description "DOMAIN CONTROLLER (RODC) - Enabled Account - No Server Object And No NTDS Settings Object" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Remove-ADobject -Identity $("CN=" + $("RODC" + $randomNr) + ",CN=Servers,CN=" + $adsiteNameForRODCs + ",CN=Sites," + $adForestConfigNCDN) -Recursive -confirm:$false -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+	
+	# DOMAIN CONTROLLER (RODC) - Enabled Account (No Server Object And No NTDS Settings Object)
+	Write-Host "DOMAIN CONTROLLER (RODC) - Enabled Account - No Server Object And No NTDS Settings Object" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $true -Description "DOMAIN CONTROLLER (RODC) - Enabled Account - No Server Object And No NTDS Settings Object" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Remove-ADobject -Identity $("CN=" + $("RODC" + $randomNr) + ",CN=Servers,CN=" + $adsiteNameForRODCs + ",CN=Sites," + $adForestConfigNCDN) -Recursive -confirm:$false -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	# DOMAIN CONTROLLER (RODC) - Disabled Account
+	Write-Host "DOMAIN CONTROLLER (RODC) - Disabled Account" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $false -Description "DOMAIN CONTROLLER (RODC) - Disabled Account" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Start-Sleep -s 1
+
+	# DOMAIN CONTROLLER (RODC) - Disabled Account
+	Write-Host "DOMAIN CONTROLLER (RODC) - Disabled Account" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $false -Description "DOMAIN CONTROLLER (RODC) - Disabled Account" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Start-Sleep -s 1
+	
+	# DOMAIN CONTROLLER (RODC) - Disabled Account
+	Write-Host "DOMAIN CONTROLLER (RODC) - Disabled Account" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $false -Description "DOMAIN CONTROLLER (RODC) - Disabled Account" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Start-Sleep -s 1
+	
+	# DOMAIN CONTROLLER (RODC) - Disabled Account
+	Write-Host "DOMAIN CONTROLLER (RODC) - Disabled Account" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $false -Description "DOMAIN CONTROLLER (RODC) - Disabled Account" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Start-Sleep -s 1
+	
+	# DOMAIN CONTROLLER (RODC) - Disabled Account
+	Write-Host "DOMAIN CONTROLLER (RODC) - Disabled Account" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false | Out-Null
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $false -Description "DOMAIN CONTROLLER (RODC) - Disabled Account" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Start-Sleep -s 1
+	
+	# DOMAIN CONTROLLER (RODC) - Disabled Account (No Server Object And No NTDS Settings Object)
+	Write-Host "DOMAIN CONTROLLER (RODC) - Disabled Account - No Server Object And No NTDS Settings Object" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $false -Description "DOMAIN CONTROLLER (RODC) - Disabled Account - No Server Object And No NTDS Settings Object" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Remove-ADobject -Identity $("CN=" + $("RODC" + $randomNr) + ",CN=Servers,CN=" + $adsiteNameForRODCs + ",CN=Sites," + $adForestConfigNCDN) -Recursive -confirm:$false -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+
+	# DOMAIN CONTROLLER (RODC) - Disabled Account (No Server Object And No NTDS Settings Object)
+	Write-Host "DOMAIN CONTROLLER (RODC) - Disabled Account - No Server Object And No NTDS Settings Object" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $false -Description "DOMAIN CONTROLLER (RODC) - Disabled Account - No Server Object And No NTDS Settings Object" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Remove-ADobject -Identity $("CN=" + $("RODC" + $randomNr) + ",CN=Servers,CN=" + $adsiteNameForRODCs + ",CN=Sites," + $adForestConfigNCDN) -Recursive -confirm:$false -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+	
+	# DOMAIN CONTROLLER (RODC) - Disabled Account (No Server Object And No NTDS Settings Object)
+	Write-Host "DOMAIN CONTROLLER (RODC) - Disabled Account - No Server Object And No NTDS Settings Object" -ForegroundColor Magenta
+	$randomNr = [System.Convert]::ToString($(Get-Date -Format "yyMMddHHmmss"),16).ToUpper() + (Get-Random -Minimum 0 -Maximum 9)
+	Add-ADDSReadOnlyDomainControllerAccount -DomainControllerAccountName $("RODC" + $randomNr) -DomainName $adDomainFQDN -SiteName $adsiteNameForRODCs -InstallDns:$false
+	Set-ADComputer -Identity $("RODC" + $randomNr) -OperatingSystemVersion "10.0 (20348)" -Enabled $false -Description "DOMAIN CONTROLLER (RODC) - Disabled Account - No Server Object And No NTDS Settings Object" -Server $adDomainRwdcFQDN
+	Set-ADAccountPassword -Identity $("RODC" + $randomNr + "`$") -NewPassword $(ConvertTo-SecureString $( -join (33..126 | ForEach-Object { [char]$_ } | Get-Random -Count 32)) -AsPlainText -Force)
+	Remove-ADobject -Identity $("CN=" + $("RODC" + $randomNr) + ",CN=Servers,CN=" + $adsiteNameForRODCs + ",CN=Sites," + $adForestConfigNCDN) -Recursive -confirm:$false -Server $adDomainRwdcFQDN
+	Start-Sleep -s 1
+
+	Write-Host ""
+}
