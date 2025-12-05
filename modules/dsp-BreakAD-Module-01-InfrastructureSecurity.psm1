@@ -6,18 +6,12 @@
 ##
 ## Module 1 creates infrastructure-level security weaknesses:
 ## - Creates dedicated bad user accounts (Schema Admin and Enterprise Admin users)
-## - Adds users to privileged groups (Schema Admins, Enterprise Admins)
+## - Adds users to privileged groups
 ## - Enables Print Spooler on all Domain Controllers
 ## - Modifies dSHeuristics for dangerous settings
-## - Optionally weakens AdminSDHolder protection
-##
-## User Creation (Idempotent):
-## - Schema Admin users: break-SchemaAdmin-01, break-SchemaAdmin-02, etc.
-## - Enterprise Admin users: break-EnterpriseAdmin-01, break-EnterpriseAdmin-02, etc.
-## - All properties driven by config file for easy adjustment
 ##
 ## Author: Bob Lyons (bob@semperis.com)
-## Version: 2.0.0 - Reworked for Idempotency
+## Version: 2.0.0 - Clean rebuild from scratch
 ##
 ################################################################################
 
@@ -28,14 +22,6 @@ function Invoke-ModuleInfrastructureSecurity {
     
     .PARAMETER Environment
         Hashtable containing Domain, DomainController, and Config info
-        
-    .DESCRIPTION
-        Creates infrastructure-level security weaknesses:
-        1. Creates Schema Admin and Enterprise Admin bad user accounts
-        2. Adds users to their respective privileged groups
-        3. Enables Print Spooler on all Domain Controllers
-        4. Modifies dSHeuristics for anonymous access
-        5. Optionally weakens AdminSDHolder
     #>
     param(
         [Parameter(Mandatory=$true)]
@@ -46,291 +32,134 @@ function Invoke-ModuleInfrastructureSecurity {
     $dc = $Environment.DomainController
     $config = $Environment.Config
     
-    $successCount = 0
-    $errorCount = 0
-    
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
-    Write-Log "Infrastructure Security Module Starting" -Level INFO
+    Write-Log "Module 01: Infrastructure Security" -Level INFO
     Write-Log "========================================" -Level INFO
-    Write-Log "Domain: $($domain.Name)" -Level INFO
-    Write-Log "DC: $($dc.HostName)" -Level INFO
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 1: CREATE SCHEMA ADMIN USERS
+    # PHASE 1: VALIDATE CONFIG & SETUP
     ################################################################################
     
-    Write-Log "PHASE 1: Creating Schema Admin Users" -Level INFO
-    Write-Log "" -Level INFO
+    Write-Log "PHASE 1: Validate Config & Setup" -Level INFO
     
     $schemaAdminCount = [int]$config['InfrastructureSecurity_SchemaAdminCount']
     $schemaAdminPassword = $config['InfrastructureSecurity_SchemaAdminPassword']
     $schemaAdminEnabled = $config['InfrastructureSecurity_SchemaAdminEnabled'] -eq 'true'
     $schemaAdminDescription = $config['InfrastructureSecurity_SchemaAdminDescription']
     
-    $schemaAdminUsers = @()
-    
-    if ($schemaAdminCount -gt 0) {
-        Write-Log "Creating $schemaAdminCount Schema Admin user(s)..." -Level INFO
-        Write-Log "  Password source: config" -Level INFO
-        Write-Log "  Enabled state: $schemaAdminEnabled" -Level INFO
-        Write-Log "" -Level INFO
-        
-        $securePassword = ConvertTo-SecureString $schemaAdminPassword -AsPlainText -Force
-        $domainDN = $domain.DistinguishedName
-        
-        for ($i = 1; $i -le $schemaAdminCount; $i++) {
-            $userName = "break-SchemaAdmin-" + "{0:D2}" -f $i
-            
-            # Check if user already exists
-            $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
-            
-            if ($existingUser) {
-                Write-Log "  [*] User already exists: $userName" -Level INFO
-                
-                # Verify properties match config (idempotency)
-                $needsUpdate = $false
-                
-                if ($existingUser.Enabled -ne $schemaAdminEnabled) {
-                    Write-Log "    Updating Enabled state: $($existingUser.Enabled) → $schemaAdminEnabled" -Level INFO
-                    Set-ADUser -Identity $userName -Enabled $schemaAdminEnabled -ErrorAction Stop
-                    $needsUpdate = $true
-                }
-                
-                if ($existingUser.Description -ne $schemaAdminDescription) {
-                    Write-Log "    Updating Description" -Level INFO
-                    Set-ADUser -Identity $userName -Description $schemaAdminDescription -ErrorAction Stop
-                    $needsUpdate = $true
-                }
-                
-                if ($needsUpdate) {
-                    Write-LogChange -Object $userName -Attribute "Properties" -OldValue "Various" -NewValue "Updated to config"
-                }
-                
-                $schemaAdminUsers += $existingUser
-                Write-Log "    [+] User verified/updated: $userName" -Level SUCCESS
-                $successCount++
-            }
-            else {
-                # Create new user
-                Write-Log "  Creating new user: $userName" -Level INFO
-                Write-Log "    [DEBUG] SamAccountName will be: '$userName'" -Level INFO
-                Write-Log "    [DEBUG] Password is set: $($null -ne $securePassword)" -Level INFO
-                Write-Log "    [DEBUG] Enabled state: $schemaAdminEnabled" -Level INFO
-                Write-Log "    [DEBUG] Description: '$schemaAdminDescription'" -Level INFO
-                
-                try {
-                    New-ADUser `
-                        -Name $userName `
-                        -SamAccountName $userName `
-                        -AccountPassword $securePassword `
-                        -Enabled $schemaAdminEnabled `
-                        -Description $schemaAdminDescription `
-                        -ChangePasswordAtLogon $false `
-                        -ErrorAction Stop
-                    
-                    Write-LogChange -Object $userName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
-                    Write-Log "    [+] User created: $userName" -Level SUCCESS
-                    
-                    # Retry logic for user retrieval with exponential backoff
-                    $maxRetries = 5
-                    $retryCount = 0
-                    $user = $null
-                    
-                    while ($retryCount -lt $maxRetries -and $null -eq $user) {
-                        $retryCount++
-                        $waitTime = [Math]::Pow(2, $retryCount)  # 2, 4, 8, 16, 32 seconds
-                        
-                        Write-Log "    Waiting $waitTime seconds for AD replication (attempt $retryCount/$maxRetries)..." -Level INFO
-                        Start-Sleep -Seconds $waitTime
-                        
-                        try {
-                            $user = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
-                            if ($null -ne $user) {
-                                Write-Log "    [+] User retrieved successfully after $retryCount attempt(s)" -Level SUCCESS
-                            }
-                        }
-                        catch {
-                            Write-Log "    [*] Retrieval attempt $retryCount failed, retrying..." -Level INFO
-                        }
-                    }
-                    
-                    if ($null -eq $user) {
-                        Write-Log "    [!] CRITICAL ERROR: Could not retrieve $userName after $maxRetries attempts" -Level ERROR
-                        Write-Log "        This suggests an AD replication or connectivity issue" -Level ERROR
-                        return $false
-                    }
-                    
-                    $schemaAdminUsers += $user
-                    $successCount++
-                }
-                catch {
-                    Write-Log "    [!] CRITICAL ERROR: Failed to create $userName : $_" -Level ERROR
-                    Write-Log "        Module stopping due to critical user creation failure" -Level ERROR
-                    return $false
-                }
-            }
-        }
-    }
-    
-    Write-Log "" -Level INFO
-    
-    ################################################################################
-    # PHASE 2: CREATE ENTERPRISE ADMIN USERS
-    ################################################################################
-    
-    Write-Log "PHASE 2: Creating Enterprise Admin Users" -Level INFO
-    Write-Log "" -Level INFO
-    
     $enterpriseAdminCount = [int]$config['InfrastructureSecurity_EnterpriseAdminCount']
     $enterpriseAdminPassword = $config['InfrastructureSecurity_EnterpriseAdminPassword']
     $enterpriseAdminEnabled = $config['InfrastructureSecurity_EnterpriseAdminEnabled'] -eq 'true'
     $enterpriseAdminDescription = $config['InfrastructureSecurity_EnterpriseAdminDescription']
     
-    $enterpriseAdminUsers = @()
+    Write-Log "  Schema Admin count: $schemaAdminCount" -Level INFO
+    Write-Log "  Enterprise Admin count: $enterpriseAdminCount" -Level INFO
+    Write-Log "  Print Spooler: $($config['InfrastructureSecurity_EnablePrintSpooler'])" -Level INFO
+    Write-Log "  dSHeuristics: $($config['InfrastructureSecurity_ModifydSHeuristics'])" -Level INFO
     
-    if ($enterpriseAdminCount -gt 0) {
-        Write-Log "Creating $enterpriseAdminCount Enterprise Admin user(s)..." -Level INFO
-        Write-Log "  Password source: config" -Level INFO
-        Write-Log "  Enabled state: $enterpriseAdminEnabled" -Level INFO
-        Write-Log "" -Level INFO
-        
-        $securePassword = ConvertTo-SecureString $enterpriseAdminPassword -AsPlainText -Force
-        $domainDN = $domain.DistinguishedName
-        
-        for ($i = 1; $i -le $enterpriseAdminCount; $i++) {
-            $userName = "break-EnterpriseAdmin-" + "{0:D2}" -f $i
+    # Validate passwords are not empty
+    if ([string]::IsNullOrEmpty($schemaAdminPassword)) {
+        Write-Log "[!] ERROR: Schema Admin password is empty in config" -Level ERROR
+        return $false
+    }
+    
+    if ([string]::IsNullOrEmpty($enterpriseAdminPassword)) {
+        Write-Log "[!] ERROR: Enterprise Admin password is empty in config" -Level ERROR
+        return $false
+    }
+    
+    # Create secure password objects
+    $schemaAdminSecurePassword = ConvertTo-SecureString $schemaAdminPassword -AsPlainText -Force
+    $enterpriseAdminSecurePassword = ConvertTo-SecureString $enterpriseAdminPassword -AsPlainText -Force
+    
+    Write-Log "[+] Config validated" -Level SUCCESS
+    Write-Log "" -Level INFO
+    
+    ################################################################################
+    # PHASE 2: CREATE SCHEMA ADMIN USERS
+    ################################################################################
+    
+    Write-Log "PHASE 2: Create Schema Admin Users" -Level INFO
+    
+    $schemaAdminUsers = @()
+    
+    if ($schemaAdminCount -gt 0) {
+        for ($i = 1; $i -le $schemaAdminCount; $i++) {
+            $userName = "break-SchemaAdmin-" + "{0:D2}" -f $i
+            
+            Write-Log "  Processing: $userName" -Level INFO
             
             # Check if user already exists
             $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
             
-            if ($existingUser) {
-                Write-Log "  [*] User already exists: $userName" -Level INFO
-                
-                # Verify properties match config (idempotency)
-                $needsUpdate = $false
-                
-                if ($existingUser.Enabled -ne $enterpriseAdminEnabled) {
-                    Write-Log "    Updating Enabled state: $($existingUser.Enabled) → $enterpriseAdminEnabled" -Level INFO
-                    Set-ADUser -Identity $userName -Enabled $enterpriseAdminEnabled -ErrorAction Stop
-                    $needsUpdate = $true
-                }
-                
-                if ($existingUser.Description -ne $enterpriseAdminDescription) {
-                    Write-Log "    Updating Description" -Level INFO
-                    Set-ADUser -Identity $userName -Description $enterpriseAdminDescription -ErrorAction Stop
-                    $needsUpdate = $true
-                }
-                
-                if ($needsUpdate) {
-                    Write-LogChange -Object $userName -Attribute "Properties" -OldValue "Various" -NewValue "Updated to config"
-                }
-                
-                $enterpriseAdminUsers += $existingUser
-                Write-Log "    [+] User verified/updated: $userName" -Level SUCCESS
-                $successCount++
+            if ($null -ne $existingUser) {
+                Write-Log "    [*] User already exists" -Level INFO
+                $schemaAdminUsers += $existingUser
             }
             else {
-                # Create new user
-                Write-Log "  Creating new user: $userName" -Level INFO
+                Write-Log "    Creating user..." -Level INFO
                 
-                try {
-                    New-ADUser `
-                        -Name $userName `
-                        -SamAccountName $userName `
-                        -AccountPassword $securePassword `
-                        -Enabled $enterpriseAdminEnabled `
-                        -Description $enterpriseAdminDescription `
-                        -ChangePasswordAtLogon $false `
-                        -ErrorAction Stop
-                    
-                    Write-LogChange -Object $userName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
-                    Write-Log "    [+] User created: $userName" -Level SUCCESS
-                    
-                    # Retry logic for user retrieval with exponential backoff
-                    $maxRetries = 5
-                    $retryCount = 0
-                    $user = $null
-                    
-                    while ($retryCount -lt $maxRetries -and $null -eq $user) {
-                        $retryCount++
-                        $waitTime = [Math]::Pow(2, $retryCount)  # 2, 4, 8, 16, 32 seconds
-                        
-                        Write-Log "    Waiting $waitTime seconds for AD replication (attempt $retryCount/$maxRetries)..." -Level INFO
-                        Start-Sleep -Seconds $waitTime
-                        
-                        try {
-                            $user = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
-                            if ($null -ne $user) {
-                                Write-Log "    [+] User retrieved successfully after $retryCount attempt(s)" -Level SUCCESS
-                            }
-                        }
-                        catch {
-                            Write-Log "    [*] Retrieval attempt $retryCount failed, retrying..." -Level INFO
-                        }
-                    }
-                    
-                    if ($null -eq $user) {
-                        Write-Log "    [!] CRITICAL ERROR: Could not retrieve $userName after $maxRetries attempts" -Level ERROR
-                        Write-Log "        This suggests an AD replication or connectivity issue" -Level ERROR
-                        return $false
-                    }
-                    
-                    $enterpriseAdminUsers += $user
-                    $successCount++
-                }
-                catch {
-                    Write-Log "    [!] CRITICAL ERROR: Failed to create $userName : $_" -Level ERROR
-                    Write-Log "        Module stopping due to critical user creation failure" -Level ERROR
+                # Create the user
+                New-ADUser `
+                    -Name $userName `
+                    -SamAccountName $userName `
+                    -AccountPassword $schemaAdminSecurePassword `
+                    -Enabled $schemaAdminEnabled `
+                    -Description $schemaAdminDescription `
+                    -ChangePasswordAtLogon $false `
+                    -ErrorAction Stop
+                
+                Write-LogChange -Object $userName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
+                Write-Log "    [+] User created" -Level SUCCESS
+                
+                # Wait for AD to process
+                Start-Sleep -Seconds 3
+                
+                # Retrieve the user
+                $newUser = Get-ADUser -Identity $userName -ErrorAction Stop
+                if ($null -eq $newUser) {
+                    Write-Log "    [!] ERROR: Could not retrieve user after creation" -Level ERROR
                     return $false
                 }
+                
+                $schemaAdminUsers += $newUser
+                Write-Log "    [+] User retrieved successfully" -Level SUCCESS
             }
         }
+    }
+    else {
+        Write-Log "  [*] Schema Admin count is 0, skipping" -Level INFO
     }
     
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 3: ADD USERS TO SCHEMA ADMINS GROUP
+    # PHASE 3: ADD SCHEMA ADMIN USERS TO GROUP
     ################################################################################
     
-    Write-Log "PHASE 3: Adding Users to Schema Admins Group" -Level INFO
-    Write-Log "" -Level INFO
+    Write-Log "PHASE 3: Add Schema Admin Users to Group" -Level INFO
     
     if ($schemaAdminUsers.Count -gt 0) {
-        try {
-            $schemaAdminsGroup = Get-ADGroup -Identity "Schema Admins" -ErrorAction Stop
-            Write-Log "Found Schema Admins group" -Level INFO
+        # Get the Schema Admins group
+        $schemaAdminsGroup = Get-ADGroup -Identity "Schema Admins" -ErrorAction Stop
+        
+        foreach ($user in $schemaAdminUsers) {
+            Write-Log "  Adding to group: $($user.Name)" -Level INFO
             
-            foreach ($user in $schemaAdminUsers) {
-                try {
-                    # Check if already a member (idempotent)
-                    $isMember = Get-ADGroupMember -Identity $schemaAdminsGroup -ErrorAction SilentlyContinue | 
-                        Where-Object { $_.DistinguishedName -eq $user.DistinguishedName }
-                    
-                    if ($isMember) {
-                        Write-Log "  [*] $($user.Name) already in Schema Admins" -Level INFO
-                    }
-                    else {
-                        Add-ADGroupMember -Identity $schemaAdminsGroup -Members $user -ErrorAction Stop
-                        Write-LogChange -Object $user.Name -Attribute "Group Membership" -OldValue "N/A" -NewValue "Schema Admins"
-                        Write-Log "  [+] Added to Schema Admins: $($user.Name)" -Level SUCCESS
-                    }
-                    
-                    $successCount++
-                }
-                catch {
-                    Write-Log "  [!] CRITICAL ERROR: Failed to add $($user.Name) to Schema Admins: $_" -Level ERROR
-                    Write-Log "      Module stopping due to group membership failure" -Level ERROR
-                    return $false
-                }
+            # Check if already a member
+            $isMember = Get-ADGroupMember -Identity $schemaAdminsGroup -ErrorAction SilentlyContinue | 
+                Where-Object { $_.DistinguishedName -eq $user.DistinguishedName }
+            
+            if ($null -ne $isMember) {
+                Write-Log "    [*] Already member of Schema Admins" -Level INFO
             }
-        }
-        catch {
-            Write-Log "  [!] CRITICAL ERROR: Failed to access Schema Admins group: $_" -Level ERROR
-            Write-Log "      Module stopping due to critical group error" -Level ERROR
-            return $false
+            else {
+                Add-ADGroupMember -Identity $schemaAdminsGroup -Members $user -ErrorAction Stop
+                Write-LogChange -Object $user.Name -Attribute "Group" -OldValue "N/A" -NewValue "Schema Admins"
+                Write-Log "    [+] Added to Schema Admins" -Level SUCCESS
+            }
         }
     }
     else {
@@ -340,45 +169,88 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 4: ADD USERS TO ENTERPRISE ADMINS GROUP
+    # PHASE 4: CREATE ENTERPRISE ADMIN USERS
     ################################################################################
     
-    Write-Log "PHASE 4: Adding Users to Enterprise Admins Group" -Level INFO
-    Write-Log "" -Level INFO
+    Write-Log "PHASE 4: Create Enterprise Admin Users" -Level INFO
     
-    if ($enterpriseAdminUsers.Count -gt 0) {
-        try {
-            $enterpriseAdminsGroup = Get-ADGroup -Identity "Enterprise Admins" -ErrorAction Stop
-            Write-Log "Found Enterprise Admins group" -Level INFO
+    $enterpriseAdminUsers = @()
+    
+    if ($enterpriseAdminCount -gt 0) {
+        for ($i = 1; $i -le $enterpriseAdminCount; $i++) {
+            $userName = "break-EnterpriseAdmin-" + "{0:D2}" -f $i
             
-            foreach ($user in $enterpriseAdminUsers) {
-                try {
-                    # Check if already a member (idempotent)
-                    $isMember = Get-ADGroupMember -Identity $enterpriseAdminsGroup -ErrorAction SilentlyContinue | 
-                        Where-Object { $_.DistinguishedName -eq $user.DistinguishedName }
-                    
-                    if ($isMember) {
-                        Write-Log "  [*] $($user.Name) already in Enterprise Admins" -Level INFO
-                    }
-                    else {
-                        Add-ADGroupMember -Identity $enterpriseAdminsGroup -Members $user -ErrorAction Stop
-                        Write-LogChange -Object $user.Name -Attribute "Group Membership" -OldValue "N/A" -NewValue "Enterprise Admins"
-                        Write-Log "  [+] Added to Enterprise Admins: $($user.Name)" -Level SUCCESS
-                    }
-                    
-                    $successCount++
-                }
-                catch {
-                    Write-Log "  [!] CRITICAL ERROR: Failed to add $($user.Name) to Enterprise Admins: $_" -Level ERROR
-                    Write-Log "      Module stopping due to group membership failure" -Level ERROR
+            Write-Log "  Processing: $userName" -Level INFO
+            
+            # Check if user already exists
+            $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
+            
+            if ($null -ne $existingUser) {
+                Write-Log "    [*] User already exists" -Level INFO
+                $enterpriseAdminUsers += $existingUser
+            }
+            else {
+                Write-Log "    Creating user..." -Level INFO
+                
+                # Create the user
+                New-ADUser `
+                    -Name $userName `
+                    -SamAccountName $userName `
+                    -AccountPassword $enterpriseAdminSecurePassword `
+                    -Enabled $enterpriseAdminEnabled `
+                    -Description $enterpriseAdminDescription `
+                    -ChangePasswordAtLogon $false `
+                    -ErrorAction Stop
+                
+                Write-LogChange -Object $userName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
+                Write-Log "    [+] User created" -Level SUCCESS
+                
+                # Wait for AD to process
+                Start-Sleep -Seconds 3
+                
+                # Retrieve the user
+                $newUser = Get-ADUser -Identity $userName -ErrorAction Stop
+                if ($null -eq $newUser) {
+                    Write-Log "    [!] ERROR: Could not retrieve user after creation" -Level ERROR
                     return $false
                 }
+                
+                $enterpriseAdminUsers += $newUser
+                Write-Log "    [+] User retrieved successfully" -Level SUCCESS
             }
         }
-        catch {
-            Write-Log "  [!] CRITICAL ERROR: Failed to access Enterprise Admins group: $_" -Level ERROR
-            Write-Log "      Module stopping due to critical group error" -Level ERROR
-            return $false
+    }
+    else {
+        Write-Log "  [*] Enterprise Admin count is 0, skipping" -Level INFO
+    }
+    
+    Write-Log "" -Level INFO
+    
+    ################################################################################
+    # PHASE 5: ADD ENTERPRISE ADMIN USERS TO GROUP
+    ################################################################################
+    
+    Write-Log "PHASE 5: Add Enterprise Admin Users to Group" -Level INFO
+    
+    if ($enterpriseAdminUsers.Count -gt 0) {
+        # Get the Enterprise Admins group
+        $enterpriseAdminsGroup = Get-ADGroup -Identity "Enterprise Admins" -ErrorAction Stop
+        
+        foreach ($user in $enterpriseAdminUsers) {
+            Write-Log "  Adding to group: $($user.Name)" -Level INFO
+            
+            # Check if already a member
+            $isMember = Get-ADGroupMember -Identity $enterpriseAdminsGroup -ErrorAction SilentlyContinue | 
+                Where-Object { $_.DistinguishedName -eq $user.DistinguishedName }
+            
+            if ($null -ne $isMember) {
+                Write-Log "    [*] Already member of Enterprise Admins" -Level INFO
+            }
+            else {
+                Add-ADGroupMember -Identity $enterpriseAdminsGroup -Members $user -ErrorAction Stop
+                Write-LogChange -Object $user.Name -Attribute "Group" -OldValue "N/A" -NewValue "Enterprise Admins"
+                Write-Log "    [+] Added to Enterprise Admins" -Level SUCCESS
+            }
         }
     }
     else {
@@ -388,60 +260,33 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 5: ENABLE PRINT SPOOLER ON DOMAIN CONTROLLERS
+    # PHASE 6: ENABLE PRINT SPOOLER ON DCS
     ################################################################################
     
-    Write-Log "PHASE 5: Enabling Print Spooler on Domain Controllers" -Level INFO
-    Write-Log "" -Level INFO
+    Write-Log "PHASE 6: Enable Print Spooler on Domain Controllers" -Level INFO
     
     if ($config['InfrastructureSecurity_EnablePrintSpooler'] -eq 'true') {
-        try {
-            $dcs = Get-ADDomainController -Filter * -ErrorAction Stop
-            Write-Log "Found $($dcs.Count) Domain Controller(s)" -Level INFO
+        $dcs = Get-ADDomainController -Filter * -ErrorAction Stop
+        
+        foreach ($dcItem in $dcs) {
+            Write-Log "  Processing DC: $($dcItem.HostName)" -Level INFO
             
-            foreach ($dcItem in $dcs) {
-                try {
-                    Write-Log "  Targeting: $($dcItem.HostName)" -Level INFO
-                    
-                    $spoolerService = Get-Service -Name Spooler -ComputerName $dcItem.HostName -ErrorAction Stop
-                    
-                    $serviceUpdated = $false
-                    
-                    # Check and update startup type
-                    if ($spoolerService.StartType -ne "Automatic") {
-                        Set-Service -Name Spooler -ComputerName $dcItem.HostName -StartupType Automatic -ErrorAction Stop
-                        Write-Log "    Updated StartupType: $($spoolerService.StartType) → Automatic" -Level INFO
-                        $serviceUpdated = $true
-                    }
-                    
-                    # Check and start service
-                    if ($spoolerService.Status -ne "Running") {
-                        Start-Service -Name Spooler -ComputerName $dcItem.HostName -ErrorAction Stop
-                        Write-Log "    Started Spooler service" -Level INFO
-                        $serviceUpdated = $true
-                    }
-                    
-                    if ($serviceUpdated) {
-                        Write-LogChange -Object $dcItem.HostName -Attribute "Spooler" -OldValue "Stopped/Manual" -NewValue "Running/Automatic"
-                        Write-Log "    [+] Print Spooler enabled" -Level SUCCESS
-                    }
-                    else {
-                        Write-Log "    [*] Print Spooler already enabled" -Level INFO
-                    }
-                    
-                    $successCount++
-                }
-                catch {
-                    Write-Log "    [!] CRITICAL ERROR on $($dcItem.HostName): $_" -Level ERROR
-                    Write-Log "      Module stopping due to DC spooler configuration failure" -Level ERROR
-                    return $false
-                }
+            $spoolerService = Get-Service -Name Spooler -ComputerName $dcItem.HostName -ErrorAction Stop
+            
+            # Check startup type
+            if ($spoolerService.StartType -ne "Automatic") {
+                Set-Service -Name Spooler -ComputerName $dcItem.HostName -StartupType Automatic -ErrorAction Stop
+                Write-Log "    Set StartupType to Automatic" -Level INFO
             }
-        }
-        catch {
-            Write-Log "  [!] CRITICAL ERROR: Failed to enumerate Domain Controllers: $_" -Level ERROR
-            Write-Log "      Module stopping due to critical DC discovery failure" -Level ERROR
-            return $false
+            
+            # Check service status
+            if ($spoolerService.Status -ne "Running") {
+                Start-Service -Name Spooler -ComputerName $dcItem.HostName -ErrorAction Stop
+                Write-Log "    Started service" -Level INFO
+            }
+            
+            Write-LogChange -Object $dcItem.HostName -Attribute "Spooler" -OldValue "Stopped/Manual" -NewValue "Running/Automatic"
+            Write-Log "    [+] Print Spooler enabled" -Level SUCCESS
         }
     }
     else {
@@ -451,56 +296,37 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 6: MODIFY dSHEURISTICS
+    # PHASE 7: MODIFY dSHEURISTICS
     ################################################################################
     
-    Write-Log "PHASE 6: Modifying dSHeuristics" -Level INFO
-    Write-Log "" -Level INFO
+    Write-Log "PHASE 7: Modify dSHeuristics" -Level INFO
     
     if ($config['InfrastructureSecurity_ModifydSHeuristics'] -eq 'true') {
-        try {
-            # Build configuration naming context from domain DN
-            # DC=d3,DC=lab -> CN=Configuration,DC=d3,DC=lab
-            $domainDNParts = $domain.DistinguishedName -split ','
-            $configNC = "CN=Configuration," + ($domainDNParts -join ',')
-            $directoryServicePath = "CN=Directory Service,CN=Windows NT,CN=Services,$configNC"
+        # Build configuration naming context from domain DN
+        $domainDNParts = $domain.DistinguishedName -split ','
+        $configNC = "CN=Configuration," + ($domainDNParts -join ',')
+        $directoryServicePath = "CN=Directory Service,CN=Windows NT,CN=Services,$configNC"
+        
+        Write-Log "  Directory Service Path: $directoryServicePath" -Level INFO
+        
+        # Connect via LDAP
+        $ldapPath = "LDAP://$directoryServicePath"
+        $directoryService = [ADSI]$ldapPath
+        
+        $currentdSH = $directoryService.dSHeuristics.Value
+        Write-Log "  Current value: '$currentdSH'" -Level INFO
+        
+        $targetdSH = "00000001"
+        
+        if ($currentdSH -ne $targetdSH) {
+            $directoryService.Put("dSHeuristics", $targetdSH)
+            $directoryService.SetInfo()
             
-            Write-Log "Directory Service Path: $directoryServicePath" -Level INFO
-            
-            # Use LDAP to get and set dSHeuristics (more reliable)
-            $ldapPath = "LDAP://$directoryServicePath"
-            $directoryService = [ADSI]$ldapPath
-            $currentdSH = $directoryService.dSHeuristics.Value
-            
-            Write-Log "  Current dSHeuristics: '$currentdSH'" -Level INFO
-            
-            # Enable anonymous NSPI (position 7 = 1)
-            # This is a realistic misconfiguration that DSP detects
-            $newdSH = "00000001"
-            
-            if ($newdSH -ne $currentdSH) {
-                try {
-                    $directoryService.Put("dSHeuristics", $newdSH)
-                    $directoryService.SetInfo()
-                    
-                    Write-LogChange -Object "Directory Service" -Attribute "dSHeuristics" -OldValue $currentdSH -NewValue $newdSH
-                    Write-Log "  [+] dSHeuristics modified: '$newdSH'" -Level SUCCESS
-                    $successCount++
-                }
-                catch {
-                    Write-Log "    [!] CRITICAL ERROR: Failed to set dSHeuristics: $_" -Level ERROR
-                    Write-Log "      Module stopping due to dSHeuristics modification failure" -Level ERROR
-                    return $false
-                }
-            }
-            else {
-                Write-Log "  [*] dSHeuristics already at target value" -Level INFO
-            }
+            Write-LogChange -Object "Directory Service" -Attribute "dSHeuristics" -OldValue $currentdSH -NewValue $targetdSH
+            Write-Log "  [+] dSHeuristics modified to: '$targetdSH'" -Level SUCCESS
         }
-        catch {
-            Write-Log "  [!] CRITICAL ERROR: Failed to modify dSHeuristics: $_" -Level ERROR
-            Write-Log "      Module stopping due to critical dSHeuristics error" -Level ERROR
-            return $false
+        else {
+            Write-Log "  [*] Already at target value" -Level INFO
         }
     }
     else {
@@ -510,14 +336,15 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # SUMMARY
+    # COMPLETION
     ################################################################################
     
     Write-Log "========================================" -Level INFO
-    Write-Log "Infrastructure Security Module Complete" -Level INFO
+    Write-Log "Module 01: Infrastructure Security" -Level INFO
     Write-Log "========================================" -Level INFO
-    Write-Log "Successful operations: $successCount" -Level SUCCESS
+    Write-Log "Status: COMPLETE" -Level SUCCESS
     Write-Log "" -Level INFO
+    
     return $true
 }
 
