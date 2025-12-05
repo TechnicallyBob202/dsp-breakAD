@@ -7,13 +7,13 @@
 ## Phases:
 ## 1: Enable dSHeuristics (Anonymous NSPI access)
 ## 2: Enable Print Spooler on DCs
-## 3: Disable LDAP Signing on DCs
-## 4: Disable SMB Signing on DCs
-## 5: Enable SMBv1 on DCs
+## 3: Disable LDAP Signing on DCs (via GPO)
+## 4: Disable SMB Signing on DCs (via GPO)
+## 5: Enable SMBv1 on DCs (via GPO)
 ## 6: Add Anonymous to Pre-Windows 2000 Compatible Access
 ##
 ## Author: Bob Lyons (bob@semperis.com)
-## Version: 5.0.0 - Infrastructure IOEs rebuild
+## Version: 5.0.0 - Infrastructure IOEs rebuild with GPO
 ##
 ################################################################################
 
@@ -41,10 +41,6 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "" -Level INFO
     
     ################################################################################
-    # PHASE 0: CREATE ORGANIZATIONAL UNITS
-    ################################################################################
-    
-    ################################################################################
     # PHASE 1: ENABLE dSHEURISTICS (ANONYMOUS NSPI)
     ################################################################################
     
@@ -64,7 +60,6 @@ function Invoke-ModuleInfrastructureSecurity {
             $currentdSH = $directoryService.dSHeuristics.Value
             Write-Log "    Current value: '$currentdSH'" -Level INFO
             
-            # Use config value or default
             $targetdSH = $config['InfrastructureSecurity_dSHeuristicsValue']
             if ([string]::IsNullOrEmpty($targetdSH)) {
                 $targetdSH = "00000001"
@@ -101,20 +96,20 @@ function Invoke-ModuleInfrastructureSecurity {
         try {
             $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
             
-            foreach ($dc in $domainControllers) {
-                Write-Log "    Processing DC: $($dc.HostName)" -Level INFO
+            foreach ($dcItem in $domainControllers) {
+                Write-Log "    Processing DC: $($dcItem.HostName)" -Level INFO
                 
                 try {
-                    $spoolerService = Get-Service -Name Spooler -ComputerName $dc.HostName -ErrorAction SilentlyContinue
+                    $spoolerService = Get-Service -Name Spooler -ComputerName $dcItem.HostName -ErrorAction SilentlyContinue
                     
                     if ($null -ne $spoolerService) {
                         if ($spoolerService.StartType -ne "Automatic") {
-                            Set-Service -Name Spooler -StartupType Automatic -ComputerName $dc.HostName -ErrorAction Stop
+                            Set-Service -Name Spooler -StartupType Automatic -ComputerName $dcItem.HostName -ErrorAction Stop
                             Write-Log "      [+] Startup type set to Automatic" -Level SUCCESS
                         }
                         
                         if ($spoolerService.Status -ne "Running") {
-                            Start-Service -Name Spooler -ComputerName $dc.HostName -ErrorAction Stop
+                            Start-Service -Name Spooler -ComputerName $dcItem.HostName -ErrorAction Stop
                             Write-Log "      [+] Service started" -Level SUCCESS
                         }
                         else {
@@ -150,7 +145,6 @@ function Invoke-ModuleInfrastructureSecurity {
             $gpoName = "dsp-breakAD-LDAP-Signing"
             $dcOU = "OU=Domain Controllers,$($domain.DistinguishedName)"
             
-            # Check if GPO exists
             $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
             
             if (-not $gpo) {
@@ -162,27 +156,26 @@ function Invoke-ModuleInfrastructureSecurity {
                 Write-Log "    [*] GPO already exists" -Level INFO
             }
             
-            # Link GPO to Domain Controllers OU
-            $gpLink = Get-GPLink -Target $dcOU -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $gpoName }
-            if (-not $gpLink) {
+            try {
                 New-GPLink -Name $gpoName -Target $dcOU -ErrorAction Stop | Out-Null
                 Write-Log "      [+] GPO linked to Domain Controllers OU" -Level SUCCESS
             }
+            catch {
+                Write-Log "      [*] GPO link already exists" -Level INFO
+            }
             
-            # Set registry preference: LDAP Server Integrity = 0 (No signing required)
             Set-GPPrefRegistryValue -Name $gpoName -Action Update -Key "HKLM\System\CurrentControlSet\Services\NTDS\Parameters" -ValueName "LDAPServerIntegrity" -Value 0 -Type DWORD -ErrorAction Stop | Out-Null
             Write-Log "      [+] Registry preference set (LDAPServerIntegrity = 0)" -Level SUCCESS
             
-            # Force GPO refresh on DCs
             Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
             $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
-            foreach ($dc in $domainControllers) {
+            foreach ($dcItem in $domainControllers) {
                 try {
-                    Invoke-Command -ComputerName $dc.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
-                    Write-Log "      [+] GPO refresh initiated on $($dc.HostName)" -Level SUCCESS
+                    Invoke-Command -ComputerName $dcItem.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
+                    Write-Log "      [+] GPO refresh initiated on $($dcItem.HostName)" -Level SUCCESS
                 }
                 catch {
-                    Write-Log "      [!] Error refreshing GPO on $($dc.HostName): $_" -Level WARNING
+                    Write-Log "      [!] Error refreshing GPO on $($dcItem.HostName): $_" -Level WARNING
                 }
             }
         }
@@ -209,7 +202,6 @@ function Invoke-ModuleInfrastructureSecurity {
             $gpoName = "dsp-breakAD-SMB-Signing"
             $dcOU = "OU=Domain Controllers,$($domain.DistinguishedName)"
             
-            # Check if GPO exists
             $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
             
             if (-not $gpo) {
@@ -221,27 +213,26 @@ function Invoke-ModuleInfrastructureSecurity {
                 Write-Log "    [*] GPO already exists" -Level INFO
             }
             
-            # Link GPO to Domain Controllers OU
-            $gpLink = Get-GPLink -Target $dcOU -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $gpoName }
-            if (-not $gpLink) {
+            try {
                 New-GPLink -Name $gpoName -Target $dcOU -ErrorAction Stop | Out-Null
                 Write-Log "      [+] GPO linked to Domain Controllers OU" -Level SUCCESS
             }
+            catch {
+                Write-Log "      [*] GPO link already exists" -Level INFO
+            }
             
-            # Set registry preference: RequireSecuritySignature = 0 (Signing not required)
             Set-GPPrefRegistryValue -Name $gpoName -Action Update -Key "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" -ValueName "RequireSecuritySignature" -Value 0 -Type DWORD -ErrorAction Stop | Out-Null
             Write-Log "      [+] Registry preference set (RequireSecuritySignature = 0)" -Level SUCCESS
             
-            # Force GPO refresh on DCs
             Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
             $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
-            foreach ($dc in $domainControllers) {
+            foreach ($dcItem in $domainControllers) {
                 try {
-                    Invoke-Command -ComputerName $dc.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
-                    Write-Log "      [+] GPO refresh initiated on $($dc.HostName)" -Level SUCCESS
+                    Invoke-Command -ComputerName $dcItem.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
+                    Write-Log "      [+] GPO refresh initiated on $($dcItem.HostName)" -Level SUCCESS
                 }
                 catch {
-                    Write-Log "      [!] Error refreshing GPO on $($dc.HostName): $_" -Level WARNING
+                    Write-Log "      [!] Error refreshing GPO on $($dcItem.HostName): $_" -Level WARNING
                 }
             }
         }
@@ -268,7 +259,6 @@ function Invoke-ModuleInfrastructureSecurity {
             $gpoName = "dsp-breakAD-SMBv1"
             $dcOU = "OU=Domain Controllers,$($domain.DistinguishedName)"
             
-            # Check if GPO exists
             $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
             
             if (-not $gpo) {
@@ -280,27 +270,26 @@ function Invoke-ModuleInfrastructureSecurity {
                 Write-Log "    [*] GPO already exists" -Level INFO
             }
             
-            # Link GPO to Domain Controllers OU
-            $gpLink = Get-GPLink -Target $dcOU -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $gpoName }
-            if (-not $gpLink) {
+            try {
                 New-GPLink -Name $gpoName -Target $dcOU -ErrorAction Stop | Out-Null
                 Write-Log "      [+] GPO linked to Domain Controllers OU" -Level SUCCESS
             }
+            catch {
+                Write-Log "      [*] GPO link already exists" -Level INFO
+            }
             
-            # Set registry preference: SMB1 = 1 (Enable SMBv1)
             Set-GPPrefRegistryValue -Name $gpoName -Action Update -Key "HKLM\System\CurrentControlSet\Services\LanmanServer\Parameters" -ValueName "SMB1" -Value 1 -Type DWORD -ErrorAction Stop | Out-Null
             Write-Log "      [+] Registry preference set (SMB1 = 1)" -Level SUCCESS
             
-            # Force GPO refresh on DCs
             Write-Log "    Refreshing Group Policy on Domain Controllers..." -Level INFO
             $domainControllers = Get-ADDomainController -Filter * -ErrorAction Stop
-            foreach ($dc in $domainControllers) {
+            foreach ($dcItem in $domainControllers) {
                 try {
-                    Invoke-Command -ComputerName $dc.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
-                    Write-Log "      [+] GPO refresh initiated on $($dc.HostName)" -Level SUCCESS
+                    Invoke-Command -ComputerName $dcItem.HostName -ScriptBlock { gpupdate /force /wait:0 } -ErrorAction SilentlyContinue | Out-Null
+                    Write-Log "      [+] GPO refresh initiated on $($dcItem.HostName)" -Level SUCCESS
                 }
                 catch {
-                    Write-Log "      [!] Error refreshing GPO on $($dc.HostName): $_" -Level WARNING
+                    Write-Log "      [!] Error refreshing GPO on $($dcItem.HostName): $_" -Level WARNING
                 }
             }
         }
@@ -327,12 +316,10 @@ function Invoke-ModuleInfrastructureSecurity {
             $groupName = "Pre-Windows 2000 Compatible Access"
             $group = Get-ADGroup -Identity $groupName -ErrorAction Stop
             
-            # Check if Anonymous is already a member
             $members = Get-ADGroupMember -Identity $group -ErrorAction SilentlyContinue
             $hasAnonymous = $members | Where-Object { $_.SID -eq "S-1-5-7" } -ErrorAction SilentlyContinue
             
             if ($null -eq $hasAnonymous) {
-                # Use ADSI to add the well-known SID
                 $groupADSI = [ADSI]"LDAP://$($group.DistinguishedName)"
                 $groupADSI.Add("LDAP://<SID=S-1-5-7>")
                 $groupADSI.SetInfo()
