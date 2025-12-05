@@ -83,39 +83,40 @@ function Invoke-ModuleInfrastructureSecurity {
         for ($i = 1; $i -le $schemaAdminCount; $i++) {
             $userName = "break-SchemaAdmin-{0:D2}" -f $i
             
-            try {
-                # Check if user already exists
-                $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
+            # Check if user already exists
+            $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
+            
+            if ($existingUser) {
+                Write-Log "  [*] User already exists: $userName" -Level INFO
                 
-                if ($existingUser) {
-                    Write-Log "  [*] User already exists: $userName" -Level INFO
-                    
-                    # Verify properties match config (idempotency)
-                    $needsUpdate = $false
-                    
-                    if ($existingUser.Enabled -ne $schemaAdminEnabled) {
-                        Write-Log "    Updating Enabled state: $($existingUser.Enabled) → $schemaAdminEnabled" -Level INFO
-                        Set-ADUser -Identity $userName -Enabled $schemaAdminEnabled -ErrorAction Stop
-                        $needsUpdate = $true
-                    }
-                    
-                    if ($existingUser.Description -ne $schemaAdminDescription) {
-                        Write-Log "    Updating Description" -Level INFO
-                        Set-ADUser -Identity $userName -Description $schemaAdminDescription -ErrorAction Stop
-                        $needsUpdate = $true
-                    }
-                    
-                    if ($needsUpdate) {
-                        Write-LogChange -Object $userName -Attribute "Properties" -OldValue "Various" -NewValue "Updated to config"
-                    }
-                    
-                    $schemaAdminUsers += $existingUser
-                    Write-Log "    [+] User verified/updated: $userName" -Level SUCCESS
+                # Verify properties match config (idempotency)
+                $needsUpdate = $false
+                
+                if ($existingUser.Enabled -ne $schemaAdminEnabled) {
+                    Write-Log "    Updating Enabled state: $($existingUser.Enabled) → $schemaAdminEnabled" -Level INFO
+                    Set-ADUser -Identity $userName -Enabled $schemaAdminEnabled -ErrorAction Stop
+                    $needsUpdate = $true
                 }
-                else {
-                    # Create new user
-                    Write-Log "  Creating new user: $userName" -Level INFO
-                    
+                
+                if ($existingUser.Description -ne $schemaAdminDescription) {
+                    Write-Log "    Updating Description" -Level INFO
+                    Set-ADUser -Identity $userName -Description $schemaAdminDescription -ErrorAction Stop
+                    $needsUpdate = $true
+                }
+                
+                if ($needsUpdate) {
+                    Write-LogChange -Object $userName -Attribute "Properties" -OldValue "Various" -NewValue "Updated to config"
+                }
+                
+                $schemaAdminUsers += $existingUser
+                Write-Log "    [+] User verified/updated: $userName" -Level SUCCESS
+                $successCount++
+            }
+            else {
+                # Create new user
+                Write-Log "  Creating new user: $userName" -Level INFO
+                
+                try {
                     New-ADUser `
                         -Name $userName `
                         -SamAccountName $userName `
@@ -128,19 +129,19 @@ function Invoke-ModuleInfrastructureSecurity {
                     Write-LogChange -Object $userName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
                     Write-Log "    [+] User created: $userName" -Level SUCCESS
                     
-                    # Wait for replication
-                    Start-Sleep -Milliseconds 500
+                    # Wait for replication - longer wait to ensure AD replication
+                    Start-Sleep -Seconds 2
                     
-                    # Retrieve the created user
+                    # Retrieve the created user - FAIL if not found
                     $user = Get-ADUser -Identity $userName -ErrorAction Stop
                     $schemaAdminUsers += $user
+                    $successCount++
                 }
-                
-                $successCount++
-            }
-            catch {
-                Write-Log "    [!] Error with $userName : $_" -Level ERROR
-                $errorCount++
+                catch {
+                    Write-Log "    [!] CRITICAL ERROR: Failed to create or retrieve $userName : $_" -Level ERROR
+                    Write-Log "        Module stopping due to critical user creation failure" -Level ERROR
+                    return $false
+                }
             }
         }
     }
@@ -173,39 +174,40 @@ function Invoke-ModuleInfrastructureSecurity {
         for ($i = 1; $i -le $enterpriseAdminCount; $i++) {
             $userName = "break-EnterpriseAdmin-{0:D2}" -f $i
             
-            try {
-                # Check if user already exists
-                $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
+            # Check if user already exists
+            $existingUser = Get-ADUser -Identity $userName -ErrorAction SilentlyContinue
+            
+            if ($existingUser) {
+                Write-Log "  [*] User already exists: $userName" -Level INFO
                 
-                if ($existingUser) {
-                    Write-Log "  [*] User already exists: $userName" -Level INFO
-                    
-                    # Verify properties match config (idempotency)
-                    $needsUpdate = $false
-                    
-                    if ($existingUser.Enabled -ne $enterpriseAdminEnabled) {
-                        Write-Log "    Updating Enabled state: $($existingUser.Enabled) → $enterpriseAdminEnabled" -Level INFO
-                        Set-ADUser -Identity $userName -Enabled $enterpriseAdminEnabled -ErrorAction Stop
-                        $needsUpdate = $true
-                    }
-                    
-                    if ($existingUser.Description -ne $enterpriseAdminDescription) {
-                        Write-Log "    Updating Description" -Level INFO
-                        Set-ADUser -Identity $userName -Description $enterpriseAdminDescription -ErrorAction Stop
-                        $needsUpdate = $true
-                    }
-                    
-                    if ($needsUpdate) {
-                        Write-LogChange -Object $userName -Attribute "Properties" -OldValue "Various" -NewValue "Updated to config"
-                    }
-                    
-                    $enterpriseAdminUsers += $existingUser
-                    Write-Log "    [+] User verified/updated: $userName" -Level SUCCESS
+                # Verify properties match config (idempotency)
+                $needsUpdate = $false
+                
+                if ($existingUser.Enabled -ne $enterpriseAdminEnabled) {
+                    Write-Log "    Updating Enabled state: $($existingUser.Enabled) → $enterpriseAdminEnabled" -Level INFO
+                    Set-ADUser -Identity $userName -Enabled $enterpriseAdminEnabled -ErrorAction Stop
+                    $needsUpdate = $true
                 }
-                else {
-                    # Create new user
-                    Write-Log "  Creating new user: $userName" -Level INFO
-                    
+                
+                if ($existingUser.Description -ne $enterpriseAdminDescription) {
+                    Write-Log "    Updating Description" -Level INFO
+                    Set-ADUser -Identity $userName -Description $enterpriseAdminDescription -ErrorAction Stop
+                    $needsUpdate = $true
+                }
+                
+                if ($needsUpdate) {
+                    Write-LogChange -Object $userName -Attribute "Properties" -OldValue "Various" -NewValue "Updated to config"
+                }
+                
+                $enterpriseAdminUsers += $existingUser
+                Write-Log "    [+] User verified/updated: $userName" -Level SUCCESS
+                $successCount++
+            }
+            else {
+                # Create new user
+                Write-Log "  Creating new user: $userName" -Level INFO
+                
+                try {
                     New-ADUser `
                         -Name $userName `
                         -SamAccountName $userName `
@@ -218,19 +220,19 @@ function Invoke-ModuleInfrastructureSecurity {
                     Write-LogChange -Object $userName -Attribute "Creation" -OldValue "N/A" -NewValue "Created"
                     Write-Log "    [+] User created: $userName" -Level SUCCESS
                     
-                    # Wait for replication
-                    Start-Sleep -Milliseconds 500
+                    # Wait for replication - longer wait to ensure AD replication
+                    Start-Sleep -Seconds 2
                     
-                    # Retrieve the created user
+                    # Retrieve the created user - FAIL if not found
                     $user = Get-ADUser -Identity $userName -ErrorAction Stop
                     $enterpriseAdminUsers += $user
+                    $successCount++
                 }
-                
-                $successCount++
-            }
-            catch {
-                Write-Log "    [!] Error with $userName : $_" -Level ERROR
-                $errorCount++
+                catch {
+                    Write-Log "    [!] CRITICAL ERROR: Failed to create or retrieve $userName : $_" -Level ERROR
+                    Write-Log "        Module stopping due to critical user creation failure" -Level ERROR
+                    return $false
+                }
             }
         }
     }
@@ -267,14 +269,16 @@ function Invoke-ModuleInfrastructureSecurity {
                     $successCount++
                 }
                 catch {
-                    Write-Log "  [!] Error adding $($user.Name) to Schema Admins: $_" -Level ERROR
-                    $errorCount++
+                    Write-Log "  [!] CRITICAL ERROR: Failed to add $($user.Name) to Schema Admins: $_" -Level ERROR
+                    Write-Log "      Module stopping due to group membership failure" -Level ERROR
+                    return $false
                 }
             }
         }
         catch {
-            Write-Log "  [!] Error accessing Schema Admins group: $_" -Level ERROR
-            $errorCount++
+            Write-Log "  [!] CRITICAL ERROR: Failed to access Schema Admins group: $_" -Level ERROR
+            Write-Log "      Module stopping due to critical group error" -Level ERROR
+            return $false
         }
     }
     else {
@@ -313,14 +317,16 @@ function Invoke-ModuleInfrastructureSecurity {
                     $successCount++
                 }
                 catch {
-                    Write-Log "  [!] Error adding $($user.Name) to Enterprise Admins: $_" -Level ERROR
-                    $errorCount++
+                    Write-Log "  [!] CRITICAL ERROR: Failed to add $($user.Name) to Enterprise Admins: $_" -Level ERROR
+                    Write-Log "      Module stopping due to group membership failure" -Level ERROR
+                    return $false
                 }
             }
         }
         catch {
-            Write-Log "  [!] Error accessing Enterprise Admins group: $_" -Level ERROR
-            $errorCount++
+            Write-Log "  [!] CRITICAL ERROR: Failed to access Enterprise Admins group: $_" -Level ERROR
+            Write-Log "      Module stopping due to critical group error" -Level ERROR
+            return $false
         }
     }
     else {
@@ -374,14 +380,16 @@ function Invoke-ModuleInfrastructureSecurity {
                     $successCount++
                 }
                 catch {
-                    Write-Log "    [!] Error on $($dcItem.HostName): $_" -Level ERROR
-                    $errorCount++
+                    Write-Log "    [!] CRITICAL ERROR on $($dcItem.HostName): $_" -Level ERROR
+                    Write-Log "      Module stopping due to DC spooler configuration failure" -Level ERROR
+                    return $false
                 }
             }
         }
         catch {
-            Write-Log "  [!] Error enumerating Domain Controllers: $_" -Level ERROR
-            $errorCount++
+            Write-Log "  [!] CRITICAL ERROR: Failed to enumerate Domain Controllers: $_" -Level ERROR
+            Write-Log "      Module stopping due to critical DC discovery failure" -Level ERROR
+            return $false
         }
     }
     else {
@@ -428,8 +436,9 @@ function Invoke-ModuleInfrastructureSecurity {
                     $successCount++
                 }
                 catch {
-                    Write-Log "    [!] Error setting dSHeuristics: $_" -Level ERROR
-                    $errorCount++
+                    Write-Log "    [!] CRITICAL ERROR: Failed to set dSHeuristics: $_" -Level ERROR
+                    Write-Log "      Module stopping due to dSHeuristics modification failure" -Level ERROR
+                    return $false
                 }
             }
             else {
@@ -437,8 +446,9 @@ function Invoke-ModuleInfrastructureSecurity {
             }
         }
         catch {
-            Write-Log "  [!] Error modifying dSHeuristics: $_" -Level ERROR
-            $errorCount++
+            Write-Log "  [!] CRITICAL ERROR: Failed to modify dSHeuristics: $_" -Level ERROR
+            Write-Log "      Module stopping due to critical dSHeuristics error" -Level ERROR
+            return $false
         }
     }
     else {
@@ -455,12 +465,6 @@ function Invoke-ModuleInfrastructureSecurity {
     Write-Log "Infrastructure Security Module Complete" -Level INFO
     Write-Log "========================================" -Level INFO
     Write-Log "Successful operations: $successCount" -Level SUCCESS
-    if ($errorCount -gt 0) {
-        Write-Log "Errors encountered: $errorCount" -Level WARNING
-        Write-Log "" -Level INFO
-        return $false
-    }
-    
     Write-Log "" -Level INFO
     return $true
 }
