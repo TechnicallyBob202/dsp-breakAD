@@ -220,7 +220,7 @@ function Invoke-ModuleInfrastructureSecurity {
                     -SamAccountName $userName `
                     -AccountPassword $enterpriseAdminSecurePassword `
                     -Enabled $enterpriseAdminEnabled `
-                    -Description $enterpriseAdminDescription `
+                    -Description "Test Description" `
                     -ChangePasswordAtLogon $false `
                     -Path $usersOUPath `
                     -ErrorAction Stop
