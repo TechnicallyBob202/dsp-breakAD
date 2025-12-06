@@ -142,7 +142,7 @@ function Invoke-ModuleInfrastructureSecurity {
         Write-Log "  Creating/modifying GPO for LDAP Signing..." -Level INFO
         
         try {
-            $gpoName = "dsp-breakAD-LDAP-Signing"
+            $gpoName = "breakAD-LDAP-Signing"
             $dcOU = "OU=Domain Controllers,$($domain.DistinguishedName)"
             
             $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
@@ -205,7 +205,7 @@ function Invoke-ModuleInfrastructureSecurity {
         Write-Log "  Creating/modifying GPO for SMB Signing..." -Level INFO
         
         try {
-            $gpoName = "dsp-breakAD-SMB-Signing"
+            $gpoName = "breakAD-SMB-Signing"
             $dcOU = "OU=Domain Controllers,$($domain.DistinguishedName)"
             
             $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
@@ -269,7 +269,7 @@ function Invoke-ModuleInfrastructureSecurity {
         Write-Log "  NOTE: SMBv1 may require Domain Controller restart to take effect" -Level WARNING
         
         try {
-            $gpoName = "dsp-breakAD-SMBv1"
+            $gpoName = "breakAD-SMBv1"
             $dcOU = "OU=Domain Controllers,$($domain.DistinguishedName)"
             
             $gpo = Get-GPO -Name $gpoName -ErrorAction SilentlyContinue
