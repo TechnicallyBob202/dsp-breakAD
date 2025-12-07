@@ -130,12 +130,34 @@ else {
 }
 
 ################################################################################
-# PHASE 3: MODULE SELECTION
+# PHASE 3: DISCOVER MODULES
 ################################################################################
 
-Write-LogSection "PHASE 3: Module Selection"
+Write-LogSection "PHASE 3: Discover Available Modules"
 
-$availableModules = @("GroupPolicySecurity")
+$moduleFiles = Get-ChildItem -Path $Script:ModulesPath -Filter "dsp-BreakAD-Module-*.psm1" -ErrorAction SilentlyContinue | Sort-Object Name
+
+$availableModules = @()
+foreach ($moduleFile in $moduleFiles) {
+    $moduleName = $moduleFile.BaseName -replace "dsp-BreakAD-Module-\d+-", ""
+    
+    if ($moduleName -ne "Preflight") {
+        $availableModules += $moduleName
+    }
+}
+
+if ($availableModules.Count -eq 0) {
+    Write-Log "ERROR: No modules found in $Script:ModulesPath" -Level ERROR
+    exit 1
+}
+
+Write-Log "Found $($availableModules.Count) module(s): $($availableModules -join ', ')" -Level SUCCESS
+
+################################################################################
+# PHASE 4: MODULE SELECTION
+################################################################################
+
+Write-LogSection "PHASE 4: Module Selection"
 
 $selectedModules = @()
 
@@ -187,10 +209,10 @@ if ($selectedModules.Count -eq 0) {
 Write-Log "Selected $($selectedModules.Count) module(s)" -Level SUCCESS
 
 ################################################################################
-# PHASE 4: LOAD MODULES
+# PHASE 5: LOAD MODULES
 ################################################################################
 
-Write-LogSection "PHASE 4: Load Modules"
+Write-LogSection "PHASE 5: Load Modules"
 
 $loadedModules = @()
 $modulesToLoad = Get-ChildItem -Path $Script:ModulesPath -Filter "dsp-BreakAD-Module-*.psm1" -ErrorAction SilentlyContinue | Sort-Object Name
@@ -222,10 +244,10 @@ if ($loadedModules.Count -eq 0) {
 Write-Log "Successfully loaded $($loadedModules.Count) module(s)" -Level SUCCESS
 
 ################################################################################
-# PHASE 5: BUILD ENVIRONMENT
+# PHASE 6: BUILD ENVIRONMENT
 ################################################################################
 
-Write-LogSection "PHASE 5: Build Environment"
+Write-LogSection "PHASE 6: Build Environment"
 
 $domain = Get-ADDomain -ErrorAction Stop
 $dcs = Get-ADDomainController -Filter * -ErrorAction Stop
@@ -247,10 +269,10 @@ Write-Log "Domain: $($domain.DNSRoot)" -Level INFO
 Write-Log "DC: $($primaryDC.HostName)" -Level INFO
 
 ################################################################################
-# PHASE 6: EXECUTE MODULES
+# PHASE 7: EXECUTE MODULES
 ################################################################################
 
-Write-LogSection "PHASE 6: Execute Modules"
+Write-LogSection "PHASE 7: Execute Modules"
 
 $executedCount = 0
 $failedCount = 0
