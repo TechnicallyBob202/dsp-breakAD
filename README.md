@@ -1,4 +1,4 @@
-## DSP Break AD - Lower Your DSP Score Intentionally
+# DSP Break AD - Lower Your DSP Score Intentionally
 
 Tool to programmatically introduce Active Directory security misconfigurations targeting Directory Services Protector (DSP) Indicators of Exposure (IOEs).
 
@@ -11,14 +11,14 @@ Tool to programmatically introduce Active Directory security misconfigurations t
 ## Quick Start
 
 ```powershell
-# Run all modules interactively
+# Run interactively (select modules)
 .\dsp-breakAD.ps1
 
-# Run specific modules
-.\dsp-breakAD.ps1 -ModuleNames "AccountSecurity", "InfrastructureSecurity"
-
-# Run all modules non-interactively
+# Run all modules
 .\dsp-breakAD.ps1 -All
+
+# Run specific modules
+.\dsp-breakAD.ps1 -ModuleNames "GroupPolicySecurity", "AccountSecurity"
 ```
 
 ---
@@ -27,30 +27,28 @@ Tool to programmatically introduce Active Directory security misconfigurations t
 
 ```
 dsp-breakAD/
-├── dsp-breakAD.ps1                           # Main orchestration script
-├── dsp-breakAD.config                        # Configuration (enable/disable IOEs)
-├── dsp-BreakAD-Logging.psm1                  # Logging module
+├── dsp-breakAD.ps1                              # Main orchestration script
+├── dsp-breakAD.config                           # Configuration (OU paths only)
+├── dsp-BreakAD-Logging.psm1                     # Logging module
 ├── modules/
-│   ├── dsp-BreakAD-Module-00-Preflight.psm1  # Environment setup & validation
-│   ├── dsp-BreakAD-Module-01-InfrastructureSecurity.psm1
+│   ├── dsp-BreakAD-Module-00-Preflight.psm1     # Environment setup & validation
+│   ├── dsp-BreakAD-Module-01-GroupPolicySecurity.psm1
 │   ├── dsp-BreakAD-Module-02-AccountSecurity.psm1
 │   ├── dsp-BreakAD-Module-03-ADDelegation.psm1
-│   ├── dsp-BreakAD-Module-04-KerberosSecurity.psm1
-│   └── dsp-BreakAD-Module-05-GroupPolicySecurity.psm1
+│   └── dsp-BreakAD-Module-04-KerberosSecurity.psm1
 └── logs/
-    └── dsp-breakAD-YYYYMMDD-HHMMSS.log      # Execution logs
+    └── dsp-breakAD-YYYYMMDD-HHMMSS.log         # Execution logs
 ```
 
 ---
 
 ## Execution Flow
 
-1. **Load Configuration** - Read `dsp-breakAD.config`
-2. **Run Preflight** - Validate environment, create OUs, discover domain/DC info
-3. **Module Selection** - User selects which modules to run (or specify via parameter)
-4. **Load Modules** - Import selected PowerShell modules
-5. **Execute Modules** - Run each module sequentially with domain context
-6. **Log Results** - Write detailed execution log to `logs/` directory
+1. **Run Preflight** - Validates environment, creates OU structure, discovers domain/DC
+2. **Auto-discover Modules** - Scans `modules/` directory for all `dsp-BreakAD-Module-*.psm1` files (except Preflight)
+3. **Module Selection** - User selects which modules to run interactively (or specify via `-ModuleNames` / `-All`)
+4. **Load & Execute** - Load selected modules and execute sequentially with domain context
+5. **Log Results** - Write detailed execution log to `logs/` directory
 
 ---
 
@@ -64,67 +62,67 @@ dsp-breakAD/
 - Validate ActiveDirectory module availability
 - Verify AD domain connectivity
 - Discover domain and DC information
-- Create BreakAD OU structure for test objects
+- Create BreakAD OU structure:
+  - `OU=BreakAD,DC=...`
+  - `OU=Users,OU=BreakAD,DC=...`
+  - `OU=Computers,OU=BreakAD,DC=...`
 
-**Output**: Environment hashtable passed to all modules
+**Output**: Environment hashtable (Domain, DomainController, Config) passed to all modules
 
-**Can be skipped**: `.\dsp-breakAD.ps1 -SkipPreflight` (not recommended)
+**Auto-run**: Always runs first, cannot be skipped
 
 ---
 
-## Module: Infrastructure Security (Module 01)
+## Module: Group Policy Security (Module 01)
 
-**Target Category**: AD Infrastructure Security IOEs
+**Target Category**: Group Policy Security IOEs
 
-**IOEs Implemented**: 8 of 9
+**IOEs Implemented**: 10 of 13
 
-**Skipped IOE**: SMBv1 enablement (requires Windows Feature installation + DC restart)
+### Phase 1-2: Modify Default Domain/Controllers Policies
+- **IOEs**: Changes to Default Domain/Controllers Policy
+- **Method**: Sets innocuous registry value (SubmitControl=1) in LSA key
+- **Impact**: Minimal, non-destructive
 
-### Phase 1: Enable dSHeuristics (Anonymous NSPI Access)
-- **IOE**: Anonymous NSPI access to AD enabled
-- **Method**: Modifies `CN=Directory Service` LDAP object
-- **Config**: `InfrastructureSecurity_EnabledSHeuristics=true`
+### Phase 3: Create Test GPOs
+- **Action**: Creates 3 test GPOs (`breakAD-LinkTest-Domain/Site/OU`)
+- **Location**: BreakAD OU
 
-### Phase 2: Enable Print Spooler on DCs
-- **IOE**: Print spooler service enabled on DC
-- **Method**: Sets service startup to Automatic, starts service
-- **Config**: `InfrastructureSecurity_EnablePrintSpooler=true`
-- **Impact**: Critical - PrintNightmare execution vector
+### Phase 4: Link/Unlink Operations
+- **IOEs**: Changes to GPO linking at domain/site level
+- **Method**: New-GPLink and link/unlink operations on test GPOs
+- **Impact**: Creates change history for DSP detection
 
-### Phase 3: Disable LDAP Signing via GPO
-- **IOE**: LDAP signing not required on DCs
-- **Method**: Creates GPO, sets registry preference
-- **Config**: `InfrastructureSecurity_DisableLDAPSigning=true`
+### Phase 5: Dangerous User Rights
+- **IOE**: Dangerous user rights granted by GPO
+- **Method**: Creates GptTmpl.inf in SYSVOL with SeServiceLogonRight, SeDebugPrivilege, SeTakeOwnershipPrivilege
+- **Target**: Test user (break-dangrights-###)
 
-### Phase 4: Disable SMB Signing via GPO
-- **IOE**: SMB signing not required
-- **Method**: Creates GPO, sets registry preference
-- **Config**: `InfrastructureSecurity_DisableSMBSigning=true`
+### Phase 6: Logon Script Path
+- **IOE**: Dangerous GPO logon script path
+- **Method**: Creates script file in SYSVOL with Everyone:Modify ACL + Scripts.ini registration
+- **Location**: Test GPO User\Scripts\Logon directory
 
-### Phase 5: Enable SMBv1 on DCs
-- **IOE**: SMBv1 enabled on Domain Controllers
-- **Status**: SKIPPED - requires Windows Feature + restart
-- **Config**: `InfrastructureSecurity_EnableSMBv1=false`
+### Phase 7: Weak LM Hash Storage
+- **IOE**: GPO weak LM hash storage enabled
+- **Method**: Adds Registry Values section to GptTmpl.inf with NoLMHash=0
+- **Location**: Test GPO GptTmpl.inf
 
-### Phase 6: Add Anonymous to Pre-Windows 2000 Compatible Access
-- **IOE**: Pre-Windows 2000 Compatible Access group membership
-- **Method**: Adds Anonymous to group
-- **Config**: `InfrastructureSecurity_AddAnonymousPre2000=true`
+### Phase 8: GPO Linking Delegation
+- **IOEs**: GPO linking delegation at domain/site/DC OU levels
+- **Method**: Grants LinkGPO and gPLink write permissions via ACLs
+- **Targets**: 
+  - BreakAD OU (domain-level delegation)
+  - First available site (site-level)
+  - Domain Controllers OU (DC OU-level)
+- **User**: break-gpo-delegate-###
 
-### Phase 7: Modify Schema Permissions
-- **IOE**: Unauthorized schema modifications possible
-- **Method**: Grants Authenticated Users GenericWrite on schema
-- **Config**: `InfrastructureSecurity_ModifySchemaPermissions=true`
+### Phase 9: Force Group Policy Update
+- **Action**: Runs `gpupdate /force` to apply changes
 
-### Phase 8: Disable LDAP Channel Binding
-- **IOE**: LDAP channel binding not enforced
-- **Method**: Registry modification via GPO
-- **Config**: `InfrastructureSecurity_DisableLDAPChannelBinding=true`
-
-### Phase 9: Unsecured DNS Configuration
-- **IOE**: DNS allows unsecured dynamic updates
-- **Method**: Sets DNS zones to NonsecureAndSecure
-- **Config**: `InfrastructureSecurity_UnsecuredDNS=false` (disabled by default)
+**IOEs NOT Firing**:
+- Reversible passwords (Groups.xml created but DSP not detecting)
+- Writable shortcuts (removed - DSP not detecting)
 
 ---
 
@@ -132,98 +130,84 @@ dsp-breakAD/
 
 **Target Category**: Account Security IOEs
 
-**IOEs Implemented**: 11 of 13
+**IOEs Implemented**: 18 of 35+
 
-Plus 1 additional custom IOE:
-- **IOE 14**: Privileged accounts with weak Fine-Grained Password Policy (FGPP)
+### Phase 1: Create Test Accounts with Dangerous Attributes
 
-**Account Naming**: All test accounts use `break-` prefix with short suffixes to stay under 20-character SAM limit
+**IOE 1: Unprivileged accounts with adminCount=1**
+- Account: `break-admincnt-###`
+- Attribute: adminCount=1
 
-### IOE 1: Built-in Administrator Recently Used
-- **Status**: SKIPPED
-- **Reason**: Cannot reset built-in Administrator password in lab
-- **Config**: Disabled (commented in module)
+**IOE 2: User accounts with reversible encryption**
+- Account: `break-revenc-###`
+- Attribute: AllowReversiblePasswordEncryption=true
 
-### IOE 3: Privileged Accounts with Password Never Expires
-- **Config**: `AccountSecurity_PrivilegedPwdNeverExpires=true`
-- **Action**: Creates accounts, adds to Domain Admins, enables PasswordNeverExpires flag
-- **Accounts**: `break-ppwd###` (3 accounts)
+**IOE 3: User accounts with DES encryption**
+- Account: `break-des-###`
+- Attribute: msDS-SupportedEncryptionTypes=1
 
-### IOE 4: User Accounts with Reversible Encryption
-- **Config**: `AccountSecurity_ReversibleEncryption=true`
-- **Action**: Creates accounts with userAccountControl flag 0x80 (ENCRYPTED_TEXT_PASSWORD_ALLOWED)
-- **Accounts**: `break-renc###` (2 accounts)
+**IOE 4: User accounts with password not required**
+- Account: `break-nopwd-###`
+- Attribute: PasswordNotRequired=true
 
-### IOE 5: User Accounts with DES Encryption
-- **Config**: `AccountSecurity_DESEncryption=true`
-- **Action**: Creates accounts with msDS-SupportedEncryptionTypes=1 (DES only)
-- **Accounts**: `break-des###` (2 accounts)
+**IOE 5: Users with Kerberos pre-authentication disabled**
+- Account: `break-nopreauth-###`
+- Attribute: userAccountControl=0x1000010 (DONT_REQUIRE_PREAUTH)
 
-### IOE 6: User Accounts with Password Not Required
-- **Config**: `AccountSecurity_PwdNotRequired=true`
-- **Action**: Creates accounts with PasswordNotRequired flag enabled
-- **Accounts**: `break-npwd###` (2 accounts)
+**IOE 11: Users with Password Never Expires flag set**
+- Account: `break-neverexp-###`
+- Attribute: PasswordNeverExpires=true
 
-### IOE 7: Users with Kerberos Pre-authentication Disabled
-- **Config**: `AccountSecurity_PreAuthDisabled=true`
-- **Action**: Creates accounts with userAccountControl flag 0x400000 (DONT_REQUIRE_PREAUTH)
-- **Accounts**: `break-prea###` (2 accounts)
+**IOE 10: Users with old passwords**
+- Account: `break-oldpwd-###`
+- Method: Sets pwdLastSet=-1 (forces AD recomputation)
 
-### IOE 8: Unprivileged Accounts with adminCount=1
-- **Config**: `AccountSecurity_UnprivilegedAdminCount=true`
-- **Action**: Creates regular users with adminCount=1 attribute
-- **Accounts**: `break-acnt###` (2 accounts)
+### Phase 2: Create Privileged Test Account
+- Account: `break-admin-###`
+- Added to Domain Admins
+- **IOE 7**: Privileged accounts with password never expires (PasswordNeverExpires=true)
 
-### IOE 9: Accounts with Old Passwords (90+ days)
-- **Status**: SKIPPED
-- **Reason**: pwdLastSet cannot be reliably set post-creation via ADSI
-- **Config**: Disabled (commented in module)
+### Phase 3: Group Membership Changes
 
-### IOE 10: Privileged Users that are Disabled
-- **Config**: `AccountSecurity_DisabledPrivilegedUsers=true`
-- **Action**: Creates accounts, adds to Domain Admins, then disables them
-- **Accounts**: `break-dpriv###` (2 accounts)
+**IOE 12**: Changes to privileged group membership
+- Adds test accounts to:
+  - Schema Admins
+  - Domain Admins
+  - DnsAdmins
 
-### IOE 11: Recent Privileged Account Creation
-- **Config**: `AccountSecurity_RecentPrivilegedCreation=true`
-- **Action**: Creates accounts and adds to Domain Admins + Schema Admins
-- **Accounts**: `break-npr###` (2 accounts)
+**IOE 13**: Computer accounts in privileged groups
+- Creates test computer: `break-comp-###`
+- Adds to Domain Admins
 
-### IOE 12: Recent AD Object Creation (within 10 days)
-- **Config**: `AccountSecurity_RecentObjectCreation=true`
-- **Action**: Creates regular user accounts
-- **Accounts**: `break-nobj###` (3 accounts)
+**IOE 16**: Admins with Kerberos pre-authentication disabled
+- Adds break-nopreauth account to Domain Admins
 
-### IOE 13: Smart Card with Old Password
-- **Status**: SKIPPED
-- **Reason**: pwdLastSet cannot be reliably set post-creation via ADSI
-- **Config**: Disabled (commented in module)
+**IOE 14**: Schema Admins group is not empty
+- Adds break-revenc account to Schema Admins
 
-### IOE 14: Privileged Accounts with Weak Fine-Grained Password Policy
-- **Config**: `AccountSecurity_WeakFGPP=true`
-- **Action**: Creates FGPP with intentionally weak settings, applies to privileged accounts
-- **FGPP Settings**:
-  - MinPasswordLength: 4 (very weak)
-  - MinPasswordAge: 0 days
-  - MaxPasswordAge: 999 days (almost no expiration)
-  - PasswordHistoryCount: 0 (no history)
-  - LockoutThreshold: 0 (no lockout)
-  - LockoutDuration: 0 minutes
-  - ComplexityEnabled: False
-  - ReversibleEncryptionEnabled: True
-- **Target Accounts**: Applied to all `break-ppwd###` accounts (privileged)
-- **IOE Name**: "FGPP applied to privileged account" or similar
+**IOE 9**: Unprivileged principals as DNS Admins
+- Adds break-nopwd account to DnsAdmins
+
+**IOE 18**: Distributed COM Users group not empty
+- Adds test account to Distributed COM Users
+
+**IOE 19**: Performance Log Users group not empty
+- Adds test account to Performance Log Users
+
+### Phase 4: Fine-Grained Password Policy (PSO)
+
+**IOE 8**: Privileged users with weak password policy
+- Creates PSO: `break-weakpso-###`
+- Settings:
+  - MinPasswordLength: 4
+  - PasswordHistoryCount: 1
+  - MaxPasswordAge: 365 days
+- Applied to: break-admin-### (privileged account)
 
 ### Account Naming
-- **Format**: `break-{suffix}###` where ### is random 100-999
-- **Example**: `break-ppwd547`, `break-acnt823`
+- **Format**: `break-{purpose}-###` where ### is random 100-999
+- **Example**: `break-revenc547`, `break-admin823`
 - **Reason**: Random suffix avoids AD Recycle Bin conflicts on repeated runs
-
-### Passwords
-- **Generation**: Random 32-character strings (matching Module 1 approach)
-- **Characters**: ASCII 33-126 (all printable non-whitespace characters)
-- **Complexity**: Always meets Windows default complexity requirements
-- **Idempotent**: Module generates new passwords on each run (accounts deleted and recreated)
 
 ---
 
@@ -231,17 +215,47 @@ Plus 1 additional custom IOE:
 
 **Target Category**: AD Delegation IOEs
 
-**Status**: Framework in place, not fully implemented
+**IOEs Implemented**: 7 safe + 6 caution (documented but not implemented)
 
-**Planned IOEs**:
-- AdminSDHolder inheritance enabled
-- Unprivileged users added to Account Operators
-- Unprivileged users added to Backup Operators
-- Unprivileged users added to Server Operators
-- Unprivileged users added to Print Operators
-- Reset password rights granted to non-admins
-- User creation rights granted to non-admins
-- DNS Admin rights granted to non-admins
+### Phase 1: Create Test Accounts and Groups
+- Test user: `break-deleg-###`
+- Test privileged group: `break-privileged-###`
+
+### Phase 2: Built-in Guest Account Enabled
+- **IOE 1**: Enables built-in Guest account
+
+### Phase 3: gMSA Access Control
+- **IOE 4**: Non-privileged users with access to gMSA passwords
+- Creates gMSA and grants test user read access to msDS-GroupMSAMembership
+
+### Phase 4: Computer Account Creation Rights
+- **IOE 5**: Unprivileged users can add computer accounts to domain
+- Grants CreateChild permission on Computer class to test user on BreakAD OU
+
+### Phase 5: Server Trust Account Permissions
+- **IOE 6**: Users with permissions to set Server Trust Account
+- Creates test computer and grants Reset-Password extended right to test user
+
+### Phase 6: Unprivileged Owner on Privileged Group
+- **IOE 7**: Privileged objects with unprivileged owners
+- Sets test user as owner of test privileged group
+
+### Phase 7: Group Membership without adminCount
+- **IOE 8**: Objects in privileged groups without adminCount=1
+- Adds test user to privileged group without setting adminCount
+
+### Phase 8: DC Sync Rights (CAUTION)
+- **IOE 12**: Non-default principals with DC Sync rights
+- ⚠️ **WARNING**: Grants sensitive replication rights to test user
+- Must be removed after testing - do not leave active
+
+**Documented but not implemented (CAUTION/HIGH RISK)**:
+- Permission changes on AdminSDHolder
+- Inheritance enabled on AdminSDHolder
+- Domain Controller owner is not administrator
+- Delegation changes to Domain NC head
+- Non-default access to DPAPI key
+- Computer RBCD, krbtgt RBCD, and other high-risk IOEs
 
 ---
 
@@ -249,48 +263,66 @@ Plus 1 additional custom IOE:
 
 **Target Category**: Kerberos Security IOEs
 
-**Status**: Framework in place, not fully implemented
+**IOEs Implemented**: 7 of 10 safe IOEs firing
 
----
+### Phase 1: Create Test Accounts and Computers
+- 5 test users: `break-kerb-user1-###` through `break-kerb-user5-###`
+- 3 test computers: `break-kerb-c1-###`, `break-kerb-c2-###`, `break-kerb-c3-###`
 
-## Module: Group Policy Security (Module 05)
+### Phase 2: altSecurityIdentities
+- **IOE 1**: Accounts with altSecurityIdentities configured
+- Sets `altSecurityIdentities="Kerberos=altuser@REALM"` on test user
 
-**Target Category**: Group Policy Security IOEs
+### Phase 3: SPN Configuration
+- **IOE 2**: Privileged users with SPN defined
+  - Adds SPN to test user
+  - Adds user to Domain Admins
+- **IOE 3**: Users with SPN defined
+  - Adds SPN to regular test user
 
-**Status**: Framework in place, not fully implemented
+### Phase 4: RC4-Only Encryption
+- **IOE 4**: Primary users with SPN not supporting AES encryption
+- Sets `msDS-SupportedEncryptionTypes=4` (RC4 only, no AES)
+
+### Phase 5: userPassword Attribute
+- **IOE 6**: Users with userPassword attribute set
+- Sets cleartext password in userPassword attribute (legacy/risky)
+
+### Phase 6: Protocol Transition Delegation
+- **IOE 7**: Kerberos protocol transition delegation configured
+- Sets `msDS-AllowedToDelegateTo` with protocol transition flag
+
+### Phase 7: Constrained Delegation
+- **IOE 8**: Objects with constrained delegation configured
+- Sets `msDS-AllowedToDelegateTo` on test computer
+
+**IOEs NOT Firing** (not implemented):
+- Ghost SPN delegation (no detection)
+- Unconstrained delegation (no detection)
+- Protocol transition to DC (not tested)
+
+**Documented but not implemented** (CAUTION/HIGH RISK):
+- RBCD on computers/DCs/krbtgt
+- CVE exploit patterns
+- krbtgt with old password
+- Other high-risk Kerberos IOEs
 
 ---
 
 ## Configuration (dsp-breakAD.config)
 
-Edit this file to enable/disable individual IOEs:
+Currently minimal - only OU paths:
 
 ```ini
-# Module 01: Infrastructure Security
-InfrastructureSecurity_EnabledSHeuristics=true
-InfrastructureSecurity_EnablePrintSpooler=true
-InfrastructureSecurity_DisableLDAPSigning=true
-InfrastructureSecurity_DisableSMBSigning=true
-InfrastructureSecurity_EnableSMBv1=false
-InfrastructureSecurity_AddAnonymousPre2000=true
-InfrastructureSecurity_ModifySchemaPermissions=true
-InfrastructureSecurity_DisableLDAPChannelBinding=true
-InfrastructureSecurity_UnsecuredDNS=false
-
-# Module 02: Account Security
-AccountSecurity_UseBuiltInAdmin=true
-AccountSecurity_PrivilegedPwdNeverExpires=true
-AccountSecurity_ReversibleEncryption=true
-AccountSecurity_DESEncryption=true
-AccountSecurity_PwdNotRequired=true
-AccountSecurity_PreAuthDisabled=true
-AccountSecurity_UnprivilegedAdminCount=true
-AccountSecurity_OldPasswords=false
-AccountSecurity_DisabledPrivilegedUsers=true
-AccountSecurity_RecentPrivilegedCreation=true
-AccountSecurity_RecentObjectCreation=true
-AccountSecurity_SmartCardOldPassword=false
+################################################################################
+# OU Configuration
+################################################################################
+BreakAD_RootOU=BreakAD
+BreakAD_UsersOU=Users
+BreakAD_ComputersOU=Computers
 ```
+
+**Note**: Individual IOEs are not configurable via config file. Edit modules directly to enable/disable specific IOEs.
 
 ---
 
@@ -301,8 +333,8 @@ All execution logged to `logs/dsp-breakAD-YYYYMMDD-HHMMSS.log`
 **Log Levels**:
 - `[INFO]` - Informational messages
 - `[SUCCESS]` - Successfully completed actions
-- `[WARNING]` - Non-fatal errors
-- `[ERROR]` - Fatal errors
+- `[WARNING]` - Non-fatal errors (IOE not applicable)
+- `[ERROR]` - Fatal errors (stops execution)
 
 **Each entry includes**: Timestamp, level, and message
 
@@ -310,28 +342,65 @@ All execution logged to `logs/dsp-breakAD-YYYYMMDD-HHMMSS.log`
 
 ## Idempotency
 
-**Module 02 (Account Security) is fully idempotent**:
+**All modules are fully idempotent**:
 - Safe to run multiple times
-- Deletes and recreates all `break-*` accounts on each run
-- Uses random account name suffixes to avoid recycle bin conflicts
+- Test accounts deleted and recreated on each run
+- Uses random numeric suffixes (100-999) to avoid recycle bin conflicts
 - Generates new random passwords each run
-
-**Other modules**: Generally idempotent (checks for existing state before modifying)
+- GPO operations are overwrite-safe
+- ACL operations use Add (idempotent)
 
 ---
 
-## Test Accounts Created
+## Test Account Cleanup
 
 All test accounts are prefixed with `break-` and use random numeric suffixes (100-999).
 
-**Account Cleanup**:
 ```powershell
-# Remove all break-* accounts
-Get-ADUser -Filter {SamAccountName -like "break-*"} | Remove-ADUser -Confirm:$false
+# Remove all break-* users
+Get-ADUser -Filter {SamAccountName -like "break-*"} -SearchBase "OU=BreakAD,DC=..." | Remove-ADUser -Confirm:$false
 
-# Remove test OU (if empty)
+# Remove all break-* computers
+Get-ADComputer -Filter {Name -like "break-*"} -SearchBase "OU=BreakAD,DC=..." | Remove-ADComputer -Confirm:$false
+
+# Remove all break-* groups
+Get-ADGroup -Filter {Name -like "break-*"} -SearchBase "OU=BreakAD,DC=..." | Remove-ADGroup -Confirm:$false
+
+# Remove test GPOs
+Get-GPO -Name "breakAD-*" | Remove-GPO -Confirm:$false
+
+# Remove BreakAD OU (if empty)
 Remove-ADOrganizationalUnit -Identity "OU=BreakAD,DC=..." -Confirm:$false
 ```
+
+---
+
+## Parameters
+
+```powershell
+# Interactive module selection (default)
+.\dsp-breakAD.ps1
+
+# Run all modules
+.\dsp-breakAD.ps1 -All
+
+# Run specific modules
+.\dsp-breakAD.ps1 -ModuleNames "GroupPolicySecurity"
+.\dsp-breakAD.ps1 -ModuleNames "GroupPolicySecurity", "AccountSecurity"
+```
+
+---
+
+## Safety Notes
+
+- ✓ All changes are logged and documented
+- ✓ Most changes can be manually reversed
+- ✓ All test accounts scoped to BreakAD OU
+- ✓ Preflight validates environment before making changes
+- ⚠️ Run only in lab environments
+- ⚠️ Backup AD before running
+- ⚠️ Some modules introduce real security risks (e.g., Kerberos pre-auth disabled)
+- ⚠️ GPO changes affect all Domain Controllers
 
 ---
 
@@ -345,49 +414,31 @@ Remove-ADOrganizationalUnit -Identity "OU=BreakAD,DC=..." -Confirm:$false
 - Install RSAT (Remote Server Administration Tools)
 - Or run on a Domain Controller with AD tools installed
 
-### "The parameter is incorrect" (pwdLastSet errors)
-- These IOEs are skipped by design (Module 02, IOEs 9 and 13)
-- Cannot reliably set pwdLastSet post-creation via PowerShell
+### "The name provided is not a properly formed account name"
+- Computer names exceed 15-character sAMAccountName limit
+- Module auto-generates shorter names
+- If error persists, check DC logs for naming conflicts
 
-### "The password does not meet requirements"
-- Domain password policy is very strict
-- Module uses 32-character random passwords (should work)
-- Check: `Get-ADDefaultDomainPasswordPolicy`
+### "Cannot convert 'System.Object[]' to Hashtable" (SPN errors)
+- Use `-ServicePrincipalNames @{Add="..."}` syntax, not `@("...")`
+- Module has been corrected
 
 ### Account creation fails with "name already in use"
 - Old accounts still in AD Recycle Bin
-- Wait 180 days (default tombstone) or wait for script to regenerate with new random suffix
-- Or manually purge: Requires LDAP manipulation (advanced)
+- Wait for new random suffix on next run
+- Or manually purge via LDAP (advanced)
 
 ---
 
-## Parameters
+## IOE Coverage Summary
 
-```powershell
-# Run specific modules
-.\dsp-breakAD.ps1 -ModuleNames "AccountSecurity"
-.\dsp-breakAD.ps1 -ModuleNames "InfrastructureSecurity", "AccountSecurity"
-
-# Run all modules
-.\dsp-breakAD.ps1 -All
-
-# Skip preflight (not recommended)
-.\dsp-breakAD.ps1 -SkipPreflight
-
-# Interactive (default)
-.\dsp-breakAD.ps1
-```
-
----
-
-## Safety Notes
-
-- ✓ Changes are logged and documented
-- ✓ Most changes can be manually reversed
-- ⚠️ Run only in lab environments
-- ⚠️ Backup AD before running
-- ⚠️ Some changes (like Print Spooler) introduce real security risks
-- ⚠️ GPO changes affect all Domain Controllers
+| Category | Module | IOEs Implemented | Status |
+|----------|--------|------------------|--------|
+| Group Policy Security | 01 | 10/13 | Partial |
+| Account Security | 02 | 18/35+ | Partial |
+| AD Delegation | 03 | 7/21 | Partial |
+| Kerberos Security | 04 | 7/21 | Partial |
+| **TOTAL** | **4 modules** | **42/90+** | **Expanding** |
 
 ---
 
@@ -400,7 +451,9 @@ Semperis Sales Architect
 
 ## Version History
 
-- **1.0.0** - Initial release with Modules 01-02 fully implemented
-  - Module 01: Infrastructure Security (8/9 IOEs)
-  - Module 02: Account Security (11/13 IOEs)
+- **1.0.0** - Initial release with 4 modules
+  - Module 01: Group Policy Security (10/13 IOEs)
+  - Module 02: Account Security (18/35+ IOEs)
+  - Module 03: AD Delegation (7/21 IOEs, 6 documented but not implemented)
+  - Module 04: Kerberos Security (7/21 IOEs)
   - Module 00: Preflight validation

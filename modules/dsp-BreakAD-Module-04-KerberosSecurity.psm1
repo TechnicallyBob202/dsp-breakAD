@@ -7,15 +7,17 @@
 ##
 ## IOEs Documented (21 total):
 ##
-## SAFE (low risk, easy rollback):
-##  1. Accounts with altSecurityIdentities configured
-##  2. Privileged users with SPN defined
-##  3. Users with SPN defined
-##  4. Primary users with SPN not supporting AES encryption (RC4 only)
-##  5. RC4 or DES encryption type supported by Domain Controllers
-##  6. Users with the attribute userPassword set
-##  7. Kerberos protocol transition delegation configured
-##  8. Objects with constrained delegation configured
+## SAFE (low risk, easy rollback) - 7 IMPLEMENTED & FIRING:
+##  1. Accounts with altSecurityIdentities configured ✓
+##  2. Privileged users with SPN defined ✓
+##  3. Users with SPN defined ✓
+##  4. Primary users with SPN not supporting AES encryption (RC4 only) ✓
+##  5. RC4 or DES encryption type supported by Domain Controllers ✓
+##  6. Users with the attribute userPassword set ✓
+##  7. Objects with constrained delegation configured ✓
+##
+## SAFE (not firing - skipped):
+##  8. Kerberos protocol transition delegation configured
 ##  9. Accounts with Constrained Delegation configured to ghost SPN
 ## 10. Computer or user accounts with SPN that have unconstrained delegation
 ##
