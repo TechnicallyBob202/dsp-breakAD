@@ -5,7 +5,7 @@
 ## Purpose: Introduce Account Security misconfigurations to lower DSP score
 ## Targets: Account Security IOE category in DSP
 ##
-## IOEs Targeted (16):
+## IOEs Targeted (15):
 ##  1. Unprivileged accounts with adminCount=1
 ##  2. User accounts that store passwords with reversible encryption
 ##  3. User accounts that use DES encryption
@@ -15,13 +15,12 @@
 ##  7. Privileged accounts with a password that never expires
 ##  8. Privileged users with weak password policy (via PSO)
 ##  9. Unprivileged principals as DNS Admins
-## 10. Recent sIDHistory changes on objects
-## 11. AD objects created within the last 10 days
-## 12. Users with old passwords
-## 13. Users with Password Never Expires flag set
-## 14. Changes to privileged group membership
-## 15. Computer accounts in privileged groups
-## 16. Schema Admins group is not empty
+## 10. Users with old passwords
+## 11. Users with Password Never Expires flag set
+## 12. Changes to privileged group membership
+## 13. Computer accounts in privileged groups
+## 14. Schema Admins group is not empty
+## 15. AD objects created within the last 10 days
 ##
 ## Design Philosophy:
 ##  - All test accounts created in BreakAD\Users OU
@@ -186,6 +185,26 @@ function Invoke-ModuleAccountSecurity {
             Write-Log "  [!] Error creating never-expire account: $_" -Level WARNING
         }
         
+        # IOE #12: Old password (set pwdLastSet = -1 to force recomputation)
+        try {
+            $acct = New-ADUser -Name "break-oldpwd-$suffix" `
+                -SamAccountName "break-oldpwd-$suffix" `
+                -UserPrincipalName "break-oldpwd-$suffix@$domainFQDN" `
+                -Path $breakADOUUsers `
+                -AccountPassword (ConvertTo-SecureString -AsPlainText "P@ssw0rd123!" -Force) `
+                -Enabled $true `
+                -ErrorAction Stop -PassThru
+            
+            # Force AD to compute pwdLastSet by setting to -1
+            Set-ADUser -Identity $acct -Replace @{"pwdLastSet" = -1} -ErrorAction SilentlyContinue
+            
+            Write-Log "  [+] Created account with old password: $($acct.SamAccountName)" -Level SUCCESS
+            $testAccounts += $acct
+        }
+        catch {
+            Write-Log "  [!] Error creating old password account: $_" -Level WARNING
+        }
+        
         Write-Log "" -Level INFO
         
         # =====================================================================
@@ -273,32 +292,7 @@ function Invoke-ModuleAccountSecurity {
         
         Write-Log "" -Level INFO
         
-        # =====================================================================
-        # PHASE 4: Modify sIDHistory (IOE #10)
-        # =====================================================================
-        
-        Write-Log "PHASE 4: Add sIDHistory entries" -Level INFO
-        
-        try {
-            if ($privAcct -and $testAccounts.Count -gt 0) {
-                # Add a test user's SID as sIDHistory to simulate domain migration
-                $testSID = $testAccounts[0].SID.Value
-                
-                Set-ADUser -Identity $privAcct -Replace @{"sIDHistory" = $testSID} -ErrorAction Stop
-                Write-Log "  [+] Added sIDHistory entry to privileged account (IOE #10)" -Level SUCCESS
-            }
-        }
-        catch {
-            Write-Log "  [!] Error modifying sIDHistory: $_" -Level WARNING
-        }
-        
-        Write-Log "" -Level INFO
-        
-        # =====================================================================
-        # PHASE 5: Create PSO for weak password policy (IOE #8)
-        # =====================================================================
-        
-        Write-Log "PHASE 5: Create Fine-Grained Password Policy" -Level INFO
+
         
 
         
