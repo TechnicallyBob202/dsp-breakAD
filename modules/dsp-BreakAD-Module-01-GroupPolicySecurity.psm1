@@ -5,7 +5,7 @@
 ## Purpose: Introduce Group Policy Security misconfigurations to lower DSP score
 ## Targets: Group Policy Security IOE category in DSP
 ##
-## IOEs Targeted (13):
+## IOEs Targeted (10):
 ##  1. Changes to Default Domain Policy or Default Domain Controllers Policy
 ##  2. Changes to GPO linking at the AD Site level
 ##  3. Changes to GPO linking at the Domain level
@@ -14,11 +14,8 @@
 ##  6. GPO linking delegation at the AD Site level
 ##  7. GPO linking delegation at the domain controller OU level
 ##  8. GPO linking delegation at the domain level
-##  9. Reversible passwords found in GPOs
+##  9. GPO weak LM hash storage enabled
 ## 10. SYSVOL Executable Changes
-## 11. GPO weak LM hash storage enabled
-## 12. GPO with scheduled tasks configured
-## 13. Writable shortcuts found in GPO
 ##
 ## Design Philosophy:
 ##  - All actions scoped to BreakAD OUs whenever possible
@@ -244,26 +241,35 @@ function Invoke-ModuleGroupPolicySecurity {
                     Write-Log "    [+] Created test user: break-dangrights" -Level SUCCESS
                 }
                 
-                # Grant dangerous user rights via GPO preferences
-                # SeServiceLogonRight - "Log on as a service"
-                Set-GPRegistryValue -Name $rightGPO.DisplayName `
-                    -Key "HKLM\System\CurrentControlSet\Control\Lsa" `
-                    -ValueName "ServiceLogonRight" `
-                    -Value "*S-1-5-21-*-500,*S-1-5-20,$($testUser.SID)" `
-                    -Type String `
-                    -ErrorAction SilentlyContinue | Out-Null
+                # Get user SID for GptTmpl.inf
+                $userSID = $testUser.SID.Value
                 
-                Write-Log "    [+] Granted SeServiceLogonRight to $($testUser.SamAccountName)" -Level SUCCESS
+                # Create GptTmpl.inf with dangerous user rights assignments
+                $gpoGUID = $rightGPO.Id.ToString().ToUpper()
+                $gpoGUID = "{" + $gpoGUID + "}"
+                $secEditDir = "C:\Windows\SYSVOL\sysvol\$domainFQDN\Policies\$gpoGUID\Machine\Microsoft\Windows NT\SecEdit"
+                $gptTmpl = Join-Path $secEditDir "GptTmpl.inf"
                 
-                # SeDebugPrivilege - "Debug programs"
-                Set-GPRegistryValue -Name $rightGPO.DisplayName `
-                    -Key "HKLM\System\CurrentControlSet\Control\Lsa" `
-                    -ValueName "DebugPrivilege" `
-                    -Value "*S-1-5-21-*-500,$($testUser.SID)" `
-                    -Type String `
-                    -ErrorAction SilentlyContinue | Out-Null
+                # Create directory structure
+                if (-not (Test-Path $secEditDir)) {
+                    New-Item -ItemType Directory -Path $secEditDir -Force -ErrorAction SilentlyContinue | Out-Null
+                }
                 
-                Write-Log "    [+] Granted SeDebugPrivilege to $($testUser.SamAccountName)" -Level SUCCESS
+                # Create GptTmpl.inf with dangerous user rights
+                $gptTmplContent = @"
+[Unicode]
+Unicode=yes
+[Version]
+signature="`$CHICAGO`$"
+Revision=1
+[Privilege Rights]
+SeServiceLogonRight = *S-1-5-20,$userSID
+SeDebugPrivilege = *S-1-5-20,$userSID
+SeTakeOwnershipPrivilege = *S-1-5-20,$userSID
+"@
+                
+                $gptTmplContent | Out-File -FilePath $gptTmpl -Force -Encoding ASCII -ErrorAction SilentlyContinue
+                Write-Log "    [+] Created GptTmpl.inf with dangerous user rights for $($testUser.SamAccountName)" -Level SUCCESS
             }
         }
         catch {
@@ -283,10 +289,11 @@ function Invoke-ModuleGroupPolicySecurity {
             $rightGPO = Get-GPO -Name "breakAD-LinkTest-OU" -ErrorAction SilentlyContinue
             
             if ($rightGPO) {
-                # Get SYSVOL path for this GPO
+                # Get local SYSVOL path (must use local path, not UNC)
                 $gpoGUID = $rightGPO.Id.ToString().ToUpper()
                 $gpoGUID = "{" + $gpoGUID + "}"
-                $sysvolPath = "\\$dcFQDN\SYSVOL\$domainFQDN\Policies\$gpoGUID\User\Scripts\Logon"
+                $sysvolPath = "C:\Windows\SYSVOL\sysvol\$domainFQDN\Policies\$gpoGUID\User\Scripts\Logon"
+                $scriptsDir = "C:\Windows\SYSVOL\sysvol\$domainFQDN\Policies\$gpoGUID\User\Scripts"
                 
                 # Create directory structure
                 if (-not (Test-Path $sysvolPath)) {
@@ -295,8 +302,9 @@ function Invoke-ModuleGroupPolicySecurity {
                 }
                 
                 # Create the actual logon script file
-                $scriptPath = Join-Path $sysvolPath "breakAD.bat"
-                "@echo off`nREM breakAD logon script" | Out-File -FilePath $scriptPath -Force -ErrorAction SilentlyContinue
+                $scriptFile = "breakAD.bat"
+                $scriptPath = Join-Path $sysvolPath $scriptFile
+                "@echo off`nREM breakAD logon script" | Out-File -FilePath $scriptPath -Force -Encoding ASCII -ErrorAction SilentlyContinue
                 Write-Log "    [+] Created logon script file: $scriptPath" -Level SUCCESS
                 
                 # Set permissive ACLs on the script file (allow Everyone to modify)
@@ -315,15 +323,15 @@ function Invoke-ModuleGroupPolicySecurity {
                     Write-Log "    [!] Error setting ACLs on script: $_" -Level WARNING
                 }
                 
-                # Set registry value pointing to the script
-                Set-GPRegistryValue -Name $rightGPO.DisplayName `
-                    -Key "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon" `
-                    -ValueName "UserInitMprLogonScript" `
-                    -Value $scriptPath `
-                    -Type String `
-                    -ErrorAction SilentlyContinue | Out-Null
-                
-                Write-Log "    [+] Set logon script path: $scriptPath" -Level SUCCESS
+                # Create Scripts.ini to register the logon script in GPO
+                $scriptsIni = Join-Path $scriptsDir "Scripts.ini"
+                $scriptIniContent = @"
+[Logon]
+0CmdLine=$scriptFile
+0Parameters=
+"@
+                $scriptIniContent | Out-File -FilePath $scriptsIni -Force -Encoding ASCII -ErrorAction SilentlyContinue
+                Write-Log "    [+] Created Scripts.ini with logon script reference" -Level SUCCESS
             }
         }
         catch {
@@ -332,48 +340,7 @@ function Invoke-ModuleGroupPolicySecurity {
         
         Write-Log "" -Level INFO
         
-        # =====================================================================
-        # PHASE 7: IOE #9: Reversible passwords found in GPOs
-        # =====================================================================
-        
-        Write-Log "PHASE 7: Configure reversible password storage in GPO" -Level INFO
-        Write-Log "  [*] IOE: Reversible passwords found in GPOs (cpassword in SYSVOL)" -Level INFO
-        
-        try {
-            $rightGPO = Get-GPO -Name "breakAD-LinkTest-OU" -ErrorAction SilentlyContinue
-            
-            if ($rightGPO) {
-                # Get SYSVOL path for this GPO
-                $gpoGUID = $rightGPO.Id.ToString().ToUpper()
-                $gpoGUID = "{" + $gpoGUID + "}"
-                $machinePrefsPath = "\\$dcFQDN\SYSVOL\$domainFQDN\Policies\$gpoGUID\Machine\Preferences\Groups"
-                
-                # Create directory structure
-                if (-not (Test-Path $machinePrefsPath)) {
-                    New-Item -ItemType Directory -Path $machinePrefsPath -Force -ErrorAction SilentlyContinue | Out-Null
-                    Write-Log "    [+] Created GPP groups directory in SYSVOL" -Level SUCCESS
-                }
-                
-                # Create Groups.xml with cpassword entry (using known test value)
-                # Note: This uses a standard test cpassword value that's easily decryptable
-                $groupsXml = @"
-<?xml version="1.0" encoding="utf-8"?>
-<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">
-  <User clsid="{DF5F1855-51E5-4d24-8B1A-D9BDE98BA1D1}" name="breakAD-LocalAdmin" image="2" changed="$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" uid="{C46B6AB3-04AC-4873-A487-870F29548738}" userContext="0" removePolicy="0">
-    <Properties action="U" newName="" fullName="breakAD Test Local Admin" description="breakAD test account" cpassword="j1Uyj3Var418g/uS9pN8tQQdWNrVfL6+9IUtQGcubIE" changeLogon="0" noChange="0" neverExpires="1" acctDisabled="0" userName="breakAD-LocalAdmin"/>
-  </User>
-</Groups>
-"@
-                
-                $groupsXmlPath = Join-Path $machinePrefsPath "Groups.xml"
-                $groupsXml | Out-File -FilePath $groupsXmlPath -Encoding UTF8 -Force -ErrorAction SilentlyContinue
-                
-                Write-Log "    [+] Created Groups.xml with cpassword in SYSVOL: $groupsXmlPath" -Level SUCCESS
-            }
-        }
-        catch {
-            Write-Log "    [!] Error setting reversible passwords: $_" -Level WARNING
-        }
+
         
         Write-Log "" -Level INFO
         
@@ -382,78 +349,43 @@ function Invoke-ModuleGroupPolicySecurity {
         # =====================================================================
         
         Write-Log "PHASE 8: Enable weak LM hash storage in GPO" -Level INFO
-        Write-Log "  [*] IOE: GPO weak LM hash storage enabled (disable NoLMHash)" -Level INFO
+        Write-Log "  [*] IOE: GPO weak LM hash storage enabled" -Level INFO
         
         try {
             $rightGPO = Get-GPO -Name "breakAD-LinkTest-OU" -ErrorAction SilentlyContinue
             
             if ($rightGPO) {
-                # Disable "Do not store LAN Manager hash" by setting NoLMHash = 0
-                Set-GPRegistryValue -Name $rightGPO.DisplayName `
-                    -Key "HKLM\System\CurrentControlSet\Control\Lsa" `
-                    -ValueName "NoLMHash" `
-                    -Value 0 `
-                    -Type DWORD `
-                    -ErrorAction SilentlyContinue | Out-Null
+                # Update GptTmpl.inf to disable NoLMHash (enable weak LM hash)
+                $gpoGUID = $rightGPO.Id.ToString().ToUpper()
+                $gpoGUID = "{" + $gpoGUID + "}"
+                $gptTmpl = "C:\Windows\SYSVOL\sysvol\$domainFQDN\Policies\$gpoGUID\Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf"
                 
-                Write-Log "    [+] Disabled NoLMHash (enabled LM hash storage) in GPO" -Level SUCCESS
+                if (Test-Path $gptTmpl) {
+                    $content = Get-Content $gptTmpl -Raw
+                    
+                    # Add Registry Values section if not present
+                    if ($content -notmatch "\[Registry Values\]") {
+                        $content += "`n[Registry Values]`n"
+                    }
+                    
+                    # Add NoLMHash setting (4 = DWORD, 0 = disabled)
+                    if ($content -notmatch "NoLMHash") {
+                        $content = $content -replace "(\[Registry Values\])", "`$1`nMACHINE\System\CurrentControlSet\Control\Lsa\NoLMHash=4,0"
+                    }
+                    else {
+                        # Replace existing NoLMHash setting
+                        $content = $content -replace "MACHINE\\System\\CurrentControlSet\\Control\\Lsa\\NoLMHash=.*", "MACHINE\System\CurrentControlSet\Control\Lsa\NoLMHash=4,0"
+                    }
+                    
+                    $content | Out-File -FilePath $gptTmpl -Force -Encoding ASCII -ErrorAction SilentlyContinue
+                    Write-Log "    [+] Added NoLMHash=0 to GptTmpl.inf" -Level SUCCESS
+                }
             }
         }
         catch {
             Write-Log "    [!] Error setting LM hash: $_" -Level WARNING
         }
-        
 
-        
-        # =====================================================================
-        # PHASE 10: IOE #13: Writable shortcuts found in GPO
-        # =====================================================================
-        
-        Write-Log "PHASE 10: Configure writable shortcuts in GPO" -Level INFO
-        Write-Log "  [*] IOE: Writable shortcuts found in GPO" -Level INFO
-        
-        try {
-            $rightGPO = Get-GPO -Name "breakAD-LinkTest-OU" -ErrorAction SilentlyContinue
-            
-            if ($rightGPO) {
-                # Get SYSVOL path for this GPO
-                $gpoGUID = $rightGPO.Id.ToString().ToUpper()
-                $gpoGUID = "{" + $gpoGUID + "}"
-                $userDesktopPath = "\\$dcFQDN\SYSVOL\$domainFQDN\Policies\$gpoGUID\User\Desktop"
-                
-                # Create directory structure
-                if (-not (Test-Path $userDesktopPath)) {
-                    New-Item -ItemType Directory -Path $userDesktopPath -Force -ErrorAction SilentlyContinue | Out-Null
-                    Write-Log "    [+] Created GPO User Desktop directory in SYSVOL" -Level SUCCESS
-                }
-                
-                # Create a shortcut file (basic .lnk format as text)
-                $shortcutPath = Join-Path $userDesktopPath "breakAD-Shortcut.lnk"
-                $shortcutContent = "This is a test shortcut file for breakAD"
-                $shortcutContent | Out-File -FilePath $shortcutPath -Force -ErrorAction SilentlyContinue
-                
-                Write-Log "    [+] Created shortcut file: $shortcutPath" -Level SUCCESS
-                
-                # Set permissive ACLs on the shortcut (allow Everyone to modify)
-                try {
-                    $acl = Get-Acl $shortcutPath
-                    $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-                        "Everyone",
-                        "Modify",
-                        "Allow"
-                    )
-                    $acl.AddAccessRule($accessRule)
-                    Set-Acl -Path $shortcutPath -AclObject $acl -ErrorAction SilentlyContinue
-                    Write-Log "    [+] Set permissive ACLs on shortcut (Everyone can modify)" -Level SUCCESS
-                }
-                catch {
-                    Write-Log "    [!] Error setting ACLs on shortcut: $_" -Level WARNING
-                }
-            }
-        }
-        catch {
-            Write-Log "    [!] Error setting writable shortcuts: $_" -Level WARNING
-        }
         
         Write-Log "" -Level INFO
         
@@ -526,15 +458,16 @@ function Invoke-ModuleGroupPolicySecurity {
                 
                 if ($siteDN) {
                     $acl = Get-Acl "AD:$siteDN"
+                    
+                    # Grant WriteDACL on site object
                     $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
                         $sid,
-                        [System.DirectoryServices.ActiveDirectoryRights]::WriteProperty,
-                        [System.Security.AccessControl.AccessControlType]::Allow,
-                        $linkGPOGUID
+                        [System.DirectoryServices.ActiveDirectoryRights]::WriteDacl,
+                        [System.Security.AccessControl.AccessControlType]::Allow
                     )
                     $acl.AddAccessRule($ace)
                     Set-Acl "AD:$siteDN" $acl -ErrorAction Stop
-                    Write-Log "      [+] Granted GPO linking delegation on Site: $siteDN" -Level SUCCESS
+                    Write-Log "      [+] Granted WriteDACL on Site: $siteDN" -Level SUCCESS
                 }
                 else {
                     Write-Log "      [!] No sites found for site-level delegation" -Level WARNING
