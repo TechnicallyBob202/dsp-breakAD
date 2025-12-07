@@ -165,15 +165,18 @@ function Invoke-ModuleGroupPolicySecurity {
             $domainGPO = $createdGPOs | Where-Object { $_.DisplayName -eq "breakAD-LinkTest-Domain" }
             
             if ($domainGPO) {
-                # Check if already linked
-                $linked = Get-GPLink -Target $breakADOU -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $domainGPO.DisplayName }
-                
-                if (-not $linked) {
+                # Check if already linked by trying to create and catching if exists
+                try {
                     New-GPLink -Name $domainGPO.DisplayName -Target $breakADOU -Server $dcFQDN -ErrorAction Stop | Out-Null
                     Write-Log "    [+] Linked $($domainGPO.DisplayName) to BreakAD OU" -Level SUCCESS
                 }
-                else {
-                    Write-Log "    [*] GPO already linked at OU level" -Level INFO
+                catch {
+                    if ($_ -like "*already*") {
+                        Write-Log "    [*] GPO already linked at OU level" -Level INFO
+                    }
+                    else {
+                        throw $_
+                    }
                 }
             }
         }
@@ -191,14 +194,17 @@ function Invoke-ModuleGroupPolicySecurity {
                     -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty DistinguishedName
                 
                 if ($siteDN) {
-                    $linked = Get-GPLink -Target $siteDN -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $siteGPO.DisplayName }
-                    
-                    if (-not $linked) {
+                    try {
                         New-GPLink -Name $siteGPO.DisplayName -Target $siteDN -Server $dcFQDN -ErrorAction Stop | Out-Null
                         Write-Log "    [+] Linked $($siteGPO.DisplayName) to site: $siteDN" -Level SUCCESS
                     }
-                    else {
-                        Write-Log "    [*] GPO already linked at site level" -Level INFO
+                    catch {
+                        if ($_ -like "*already*") {
+                            Write-Log "    [*] GPO already linked at site level" -Level INFO
+                        }
+                        else {
+                            throw $_
+                        }
                     }
                 }
                 else {
