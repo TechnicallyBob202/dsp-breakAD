@@ -5,26 +5,24 @@
 ## Purpose: Introduce AD Delegation misconfigurations to lower DSP score
 ## Targets: AD Delegation IOE category in DSP
 ##
-## IOEs Targeted (15):
+## IOEs Targeted (13):
 ##
 ## SAFE (low risk, easy rollback):
 ##  1. Built-in guest account is enabled
 ##  2. Foreign Security Principals in Privileged Group
 ##  3. New Domain Controller PGID
-##  4. Non-privileged users with access to gMSA passwords
-##  5. Unprivileged users can add computer accounts to domain (OU-scoped)
-##  6. Users with permissions to set Server Trust Account
-##  7. Privileged objects with unprivileged owners (test group)
-##  8. Objects in privileged groups without adminCount=1
-##  9. gMSA not used (passive detection)
+##  4. Unprivileged users can add computer accounts to domain (OU-scoped)
+##  5. Users with permissions to set Server Trust Account
+##  6. Privileged objects with unprivileged owners (test group)
+##  7. Objects in privileged groups without adminCount=1
 ##
 ## CAUTION (medium risk, explicit rollback required):
-## 10. Permission changes on AdminSDHolder object
-## 11. Inheritance enabled on AdminSDHolder object
-## 12. Domain Controller owner is not an administrator
-## 13. Delegation changes to Domain NC head
-## 14. Non-default principals with DC Sync rights (test user only)
-## 15. Non-default access to DPAPI key
+##  8. Permission changes on AdminSDHolder object
+##  9. Inheritance enabled on AdminSDHolder object
+## 10. Domain Controller owner is not an administrator
+## 11. Delegation changes to Domain NC head
+## 12. Non-default principals with DC Sync rights (test user only)
+## 13. Non-default access to DPAPI key
 ##
 ## Design Philosophy:
 ##  - All test accounts created in BreakAD\Users OU
@@ -126,51 +124,7 @@ function Invoke-ModuleADDelegation {
             Write-Log "  [!] Error enabling guest account: $_" -Level WARNING
         }
         
-        Write-Log "" -Level INFO
-        
-        # =====================================================================
-        # PHASE 3: IOE #4 - Non-privileged users with access to gMSA passwords
-        # =====================================================================
-        
-        Write-Log "PHASE 3: Create gMSA and grant access to test user (IOE #4)" -Level INFO
-        
-        try {
-            if ($testUser) {
-                $gmsaName = "break-gmsa-$suffix"
-                
-                # Create gMSA
-                $gmsa = New-ADServiceAccount -Name $gmsaName `
-                    -DNSHostName "$gmsaName.$domainFQDN" `
-                    -ErrorAction Stop -PassThru
-                
-                # Grant test user read access to gMSA membership
-                $gmsaDN = $gmsa.DistinguishedName
-                $acl = Get-Acl "AD:$gmsaDN"
-                $sid = New-Object System.Security.Principal.SecurityIdentifier($testUser.SID)
-                
-                $ace = New-Object System.DirectoryServices.ActiveDirectoryAccessRule(
-                    $sid,
-                    [System.DirectoryServices.ActiveDirectoryRights]::ReadProperty,
-                    [System.Security.AccessControl.AccessControlType]::Allow,
-                    [System.Guid]"5f202010-79a5-11d0-9020-00c04fc2d4cf"  # msDS-GroupMSAMembership
-                )
-                $acl.AddAccessRule($ace)
-                Set-Acl "AD:$gmsaDN" $acl -ErrorAction SilentlyContinue
-                
-                Write-Log "  [+] Created gMSA and granted read access to test user (IOE #4)" -Level SUCCESS
-            }
-        }
-        catch {
-            Write-Log "  [!] Error creating gMSA: $_" -Level WARNING
-        }
-        
-        Write-Log "" -Level INFO
-        
-        # =====================================================================
-        # PHASE 4: IOE #5 - Unprivileged users can add computer accounts to domain
-        # =====================================================================
-        
-        Write-Log "PHASE 4: Grant computer account creation rights (IOE #5)" -Level INFO
+
         
         try {
             if ($testUser) {
@@ -197,13 +151,7 @@ function Invoke-ModuleADDelegation {
             Write-Log "  [!] Error granting computer creation rights: $_" -Level WARNING
         }
         
-        Write-Log "" -Level INFO
-        
-        # =====================================================================
-        # PHASE 5: IOE #6 - Users with permissions to set Server Trust Account
-        # =====================================================================
-        
-        Write-Log "PHASE 5: Grant Server Trust Account permissions (IOE #6)" -Level INFO
+
         
         try {
             if ($testUser) {
@@ -234,13 +182,7 @@ function Invoke-ModuleADDelegation {
             Write-Log "  [!] Error granting Server Trust Account permissions: $_" -Level WARNING
         }
         
-        Write-Log "" -Level INFO
-        
-        # =====================================================================
-        # PHASE 6: IOE #7 - Privileged objects with unprivileged owners (test group)
-        # =====================================================================
-        
-        Write-Log "PHASE 6: Set unprivileged owner on test privileged group (IOE #7)" -Level INFO
+
         
         try {
             if ($testGroup -and $testUser) {
@@ -258,13 +200,7 @@ function Invoke-ModuleADDelegation {
             Write-Log "  [!] Error setting group owner: $_" -Level WARNING
         }
         
-        Write-Log "" -Level INFO
-        
-        # =====================================================================
-        # PHASE 7: IOE #8 - Objects in privileged groups without adminCount=1
-        # =====================================================================
-        
-        Write-Log "PHASE 7: Add unprivileged user to test group without adminCount (IOE #8)" -Level INFO
+
         
         try {
             if ($testGroup -and $testUser) {
@@ -281,32 +217,7 @@ function Invoke-ModuleADDelegation {
             Write-Log "  [!] Error adding to privileged group: $_" -Level WARNING
         }
         
-        Write-Log "" -Level INFO
-        
-        # =====================================================================
-        # PHASE 8: IOE #9 - gMSA not used (passive detection)
-        # =====================================================================
-        
-        Write-Log "PHASE 8: Create gMSA not in use (IOE #9)" -Level INFO
-        
-        try {
-            $unusedGMSA = New-ADServiceAccount -Name "break-unused-gmsa-$suffix" `
-                -DNSHostName "break-unused-gmsa-$suffix.$domainFQDN" `
-                -ErrorAction Stop -PassThru
-            
-            Write-Log "  [+] Created unused gMSA (IOE #9)" -Level SUCCESS
-        }
-        catch {
-            Write-Log "  [!] Error creating unused gMSA: $_" -Level WARNING
-        }
-        
-        Write-Log "" -Level INFO
-        
-        # =====================================================================
-        # PHASE 9: IOE #14 - Non-default principals with DC Sync rights (TEST USER ONLY)
-        # =====================================================================
-        
-        Write-Log "PHASE 9: Grant DC Sync rights to test user (IOE #14)" -Level INFO
+
         Write-Log "  [!] WARNING: This is sensitive - verify removal in rollback" -Level WARNING
         
         try {
@@ -333,7 +244,7 @@ function Invoke-ModuleADDelegation {
                 $acl.AddAccessRule($ace2)
                 
                 Set-Acl "AD:$domainDN" $acl -ErrorAction Stop
-                Write-Log "  [+] Granted DC Sync rights to test user (IOE #14)" -Level SUCCESS
+
                 Write-Log "  [!] IMPORTANT: Remove this right after testing - do not leave active" -Level WARNING
             }
         }
@@ -346,8 +257,7 @@ function Invoke-ModuleADDelegation {
         Write-Log "Module 03: AD Delegation - COMPLETE" -Level INFO
         Write-Log "========================================" -Level INFO
         Write-Log "" -Level INFO
-        Write-Log "NOTE: Phases 10-15 (AdminSDHolder, Domain NC head, etc.) require" -Level INFO
-        Write-Log "      manual testing and explicit rollback plan. See comments." -Level INFO
+
         Write-Log "" -Level INFO
         
         return $true
