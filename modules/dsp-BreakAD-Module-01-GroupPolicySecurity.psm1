@@ -277,7 +277,7 @@ function Invoke-ModuleGroupPolicySecurity {
         # =====================================================================
         
         Write-Log "PHASE 6: Configure dangerous logon script path" -Level INFO
-        Write-Log "  [*] IOE: Dangerous GPO logon script path (script doesn't exist, writable parent)" -Level INFO
+        Write-Log "  [*] IOE: Dangerous GPO logon script path (script exists, writable)" -Level INFO
         
         try {
             $rightGPO = Get-GPO -Name "breakAD-LinkTest-OU" -ErrorAction SilentlyContinue
@@ -288,30 +288,34 @@ function Invoke-ModuleGroupPolicySecurity {
                 $gpoGUID = "{" + $gpoGUID + "}"
                 $sysvolPath = "\\$dcFQDN\SYSVOL\$domainFQDN\Policies\$gpoGUID\User\Scripts\Logon"
                 
-                # Create directory structure if needed (but don't create the script file)
+                # Create directory structure
                 if (-not (Test-Path $sysvolPath)) {
                     New-Item -ItemType Directory -Path $sysvolPath -Force -ErrorAction SilentlyContinue | Out-Null
                     Write-Log "    [+] Created SYSVOL logon script directory" -Level SUCCESS
                 }
                 
-                # Set permissive ACLs on the PARENT DIRECTORY (allow Everyone to write)
+                # Create the actual logon script file
+                $scriptPath = Join-Path $sysvolPath "breakAD.bat"
+                "@echo off`nREM breakAD logon script" | Out-File -FilePath $scriptPath -Force -ErrorAction SilentlyContinue
+                Write-Log "    [+] Created logon script file: $scriptPath" -Level SUCCESS
+                
+                # Set permissive ACLs on the script file (allow Everyone to modify)
                 try {
-                    $acl = Get-Acl $sysvolPath
+                    $acl = Get-Acl $scriptPath
                     $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
                         "Everyone",
-                        "Write",
+                        "Modify",
                         "Allow"
                     )
                     $acl.AddAccessRule($accessRule)
-                    Set-Acl -Path $sysvolPath -AclObject $acl -ErrorAction SilentlyContinue
-                    Write-Log "    [+] Set permissive ACLs on logon script directory" -Level SUCCESS
+                    Set-Acl -Path $scriptPath -AclObject $acl -ErrorAction SilentlyContinue
+                    Write-Log "    [+] Set permissive ACLs on logon script (Everyone can modify)" -Level SUCCESS
                 }
                 catch {
-                    Write-Log "    [!] Error setting ACLs on directory: $_" -Level WARNING
+                    Write-Log "    [!] Error setting ACLs on script: $_" -Level WARNING
                 }
                 
-                # Set registry value pointing to a non-existent script in the writable directory
-                $scriptPath = Join-Path $sysvolPath "breakAD.bat"
+                # Set registry value pointing to the script
                 Set-GPRegistryValue -Name $rightGPO.DisplayName `
                     -Key "HKLM\Software\Microsoft\Windows NT\CurrentVersion\Winlogon" `
                     -ValueName "UserInitMprLogonScript" `
@@ -319,7 +323,7 @@ function Invoke-ModuleGroupPolicySecurity {
                     -Type String `
                     -ErrorAction SilentlyContinue | Out-Null
                 
-                Write-Log "    [+] Set logon script path (non-existent file in writable directory): $scriptPath" -Level SUCCESS
+                Write-Log "    [+] Set logon script path: $scriptPath" -Level SUCCESS
             }
         }
         catch {
