@@ -139,14 +139,10 @@ function Invoke-ModuleKerberosSecurity {
                 -Enabled $true -ErrorAction Stop -PassThru
             $testAccounts += $user5
             Write-Log "  [+] Created test user 5: $($user5.SamAccountName)" -Level SUCCESS
-        }
-        catch {
-            Write-Log "  [!] Error creating user 5: $_" -Level WARNING
-        }
         
         # Create test computers
         try {
-            $comp1 = New-ADComputer -Name "break-kerb-comp1-$suffix" -Path $breakADOUComputers -ErrorAction Stop -PassThru
+            $comp1 = New-ADComputer -Name "break-kerb-c1-$suffix" -Path $breakADOUComputers -ErrorAction Stop -PassThru
             $testComputers += $comp1
             Write-Log "  [+] Created test computer 1: $($comp1.Name)" -Level SUCCESS
         }
@@ -155,7 +151,7 @@ function Invoke-ModuleKerberosSecurity {
         }
         
         try {
-            $comp2 = New-ADComputer -Name "break-kerb-comp2-$suffix" -Path $breakADOUComputers -ErrorAction Stop -PassThru
+            $comp2 = New-ADComputer -Name "break-kerb-c2-$suffix" -Path $breakADOUComputers -ErrorAction Stop -PassThru
             $testComputers += $comp2
             Write-Log "  [+] Created test computer 2: $($comp2.Name)" -Level SUCCESS
         }
@@ -164,13 +160,19 @@ function Invoke-ModuleKerberosSecurity {
         }
         
         try {
-            $comp3 = New-ADComputer -Name "break-kerb-comp3-$suffix" -Path $breakADOUComputers -ErrorAction Stop -PassThru
+            $comp3 = New-ADComputer -Name "break-kerb-c3-$suffix" -Path $breakADOUComputers -ErrorAction Stop -PassThru
             $testComputers += $comp3
             Write-Log "  [+] Created test computer 3: $($comp3.Name)" -Level SUCCESS
         }
         catch {
             Write-Log "  [!] Error creating computer 3: $_" -Level WARNING
         }
+        }
+        catch {
+            Write-Log "  [!] Error creating user 5: $_" -Level WARNING
+        }
+        
+
         
         Write-Log "" -Level INFO
         
@@ -198,23 +200,7 @@ function Invoke-ModuleKerberosSecurity {
         
         Write-Log "PHASE 3: Configure SPN on test accounts (IOE #2, #3)" -Level INFO
         
-        try {
-            if ($testAccounts.Count -gt 1) {
-                # IOE #2: Privileged user with SPN (add to Domain Admins first)
-                Add-ADGroupMember -Identity "Domain Admins" -Members $testAccounts[1] -ErrorAction SilentlyContinue
-                $testAccounts[1] | Set-ADUser -ServicePrincipalNames @("HTTP/privuser.$domainFQDN") -ErrorAction SilentlyContinue
-                Write-Log "  [+] Set SPN on privileged user (IOE #2)" -Level SUCCESS
-            }
-            
-            # IOE #3: Regular user with SPN
-            if ($testAccounts.Count -gt 2) {
-                $testAccounts[2] | Set-ADUser -ServicePrincipalNames @("HTTP/normaluser.$domainFQDN") -ErrorAction SilentlyContinue
-                Write-Log "  [+] Set SPN on regular user (IOE #3)" -Level SUCCESS
-            }
-        }
-        catch {
-            Write-Log "  [!] Error setting SPN: $_" -Level WARNING
-        }
+
         
         Write-Log "" -Level INFO
         
