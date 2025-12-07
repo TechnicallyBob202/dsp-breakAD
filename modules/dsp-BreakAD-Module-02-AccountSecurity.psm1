@@ -139,7 +139,7 @@ function Invoke-ModuleAccountSecurity {
                 -Enabled $true `
                 -ErrorAction Stop -PassThru
             
-            Set-ADUser -Identity $acct -UserAccountControl @{Add='0x400000'} -ErrorAction SilentlyContinue
+            Set-ADUser -Identity $acct -Replace @{"userAccountControl" = 0x1000010} -ErrorAction SilentlyContinue
             Write-Log "  [+] Created account with pre-authentication disabled: $($acct.SamAccountName)" -Level SUCCESS
             $testAccounts += $acct
         }
@@ -165,24 +165,7 @@ function Invoke-ModuleAccountSecurity {
             Write-Log "  [!] Error creating adminCount account: $_" -Level WARNING
         }
         
-        # IOE #12: Old password (set pwdLastSet to 180+ days ago)
-        try {
-            $acct = New-ADUser -Name "break-oldpwd-$suffix" `
-                -SamAccountName "break-oldpwd-$suffix" `
-                -UserPrincipalName "break-oldpwd-$suffix@$domainFQDN" `
-                -Path $breakADOUUsers `
-                -AccountPassword (ConvertTo-SecureString -AsPlainText "P@ssw0rd123!" -Force) `
-                -Enabled $true `
-                -ErrorAction Stop -PassThru
-            
-            $oldDate = (Get-Date).AddDays(-200)
-            Set-ADUser -Identity $acct -Replace @{"pwdLastSet" = $oldDate.ToFileTime()} -ErrorAction SilentlyContinue
-            Write-Log "  [+] Created account with old password: $($acct.SamAccountName)" -Level SUCCESS
-            $testAccounts += $acct
-        }
-        catch {
-            Write-Log "  [!] Error creating old password account: $_" -Level WARNING
-        }
+
         
         # IOE #13: Password never expires
         try {
@@ -291,49 +274,18 @@ function Invoke-ModuleAccountSecurity {
         Write-Log "" -Level INFO
         
         # =====================================================================
-        # PHASE 4: Create PSO for weak password policy (IOE #8)
+        # PHASE 4: Modify sIDHistory (IOE #10)
         # =====================================================================
         
-        Write-Log "PHASE 4: Create Fine-Grained Password Policy" -Level INFO
+        Write-Log "PHASE 4: Add sIDHistory entries" -Level INFO
         
         try {
-            $psoName = "break-weakpso-$suffix"
-            $pso = New-ADFineGrainedPasswordPolicy -Name $psoName `
-                -Precedence 100 `
-                -MinPasswordLength 4 `
-                -PasswordHistoryCount 1 `
-                -MaxPasswordAge (New-TimeSpan -Days 365) `
-                -ErrorAction Stop
-            
-            if ($privAcct) {
-                Add-ADFineGrainedPasswordPolicySubject -Identity $pso -Subjects $privAcct -ErrorAction SilentlyContinue
-                Write-Log "  [+] Created weak PSO and applied to privileged account (IOE #8)" -Level SUCCESS
-            }
-            else {
-                Write-Log "  [!] Weak PSO created but no privileged account to apply it to" -Level WARNING
-            }
-        }
-        catch {
-            Write-Log "  [!] Error creating PSO: $_" -Level WARNING
-        }
-        
-        Write-Log "" -Level INFO
-        
-        # =====================================================================
-        # PHASE 5: Modify sIDHistory (IOE #10)
-        # =====================================================================
-        
-        Write-Log "PHASE 5: Add sIDHistory entries" -Level INFO
-        
-        try {
-            if ($testAccounts.Count -gt 0) {
-                $testUser = $testAccounts[0]
+            if ($privAcct -and $testAccounts.Count -gt 0) {
+                # Add a test user's SID as sIDHistory to simulate domain migration
+                $testSID = $testAccounts[0].SID.Value
                 
-                # Get a fake SID to add to sIDHistory
-                $fakeSID = "S-1-5-21-1234567890-1234567890-1234567890-1013"
-                
-                Set-ADUser -Identity $testUser -Replace @{"sIDHistory" = $fakeSID} -ErrorAction SilentlyContinue
-                Write-Log "  [+] Added sIDHistory entry to test account (IOE #10)" -Level SUCCESS
+                Set-ADUser -Identity $privAcct -Replace @{"sIDHistory" = $testSID} -ErrorAction Stop
+                Write-Log "  [+] Added sIDHistory entry to privileged account (IOE #10)" -Level SUCCESS
             }
         }
         catch {
@@ -341,6 +293,16 @@ function Invoke-ModuleAccountSecurity {
         }
         
         Write-Log "" -Level INFO
+        
+        # =====================================================================
+        # PHASE 5: Create PSO for weak password policy (IOE #8)
+        # =====================================================================
+        
+        Write-Log "PHASE 5: Create Fine-Grained Password Policy" -Level INFO
+        
+
+        
+
         Write-Log "========================================" -Level INFO
         Write-Log "Module 02: Account Security - COMPLETE" -Level INFO
         Write-Log "========================================" -Level INFO
