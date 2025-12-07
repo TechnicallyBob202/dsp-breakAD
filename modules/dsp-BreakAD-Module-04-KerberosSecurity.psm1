@@ -198,11 +198,25 @@ function Invoke-ModuleKerberosSecurity {
         # PHASE 3: IOE #2 & #3 - Users with SPN defined
         # =====================================================================
         
-        Write-Log "PHASE 3: Configure SPN on test accounts (IOE #2, #3)" -Level INFO
-        
 
         
-        Write-Log "" -Level INFO
+        try {
+            if ($testAccounts.Count -gt 1) {
+                # IOE #2: Privileged user with SPN (add to Domain Admins first)
+                Add-ADGroupMember -Identity "Domain Admins" -Members $testAccounts[1] -ErrorAction SilentlyContinue
+                $testAccounts[1] | Set-ADUser -ServicePrincipalNames @{Add="HTTP/privuser.$domainFQDN"} -ErrorAction SilentlyContinue
+                Write-Log "  [+] Set SPN on privileged user (IOE #2)" -Level SUCCESS
+            }
+            
+            # IOE #3: Regular user with SPN
+            if ($testAccounts.Count -gt 2) {
+                $testAccounts[2] | Set-ADUser -ServicePrincipalNames @{Add="HTTP/normaluser.$domainFQDN"} -ErrorAction SilentlyContinue
+                Write-Log "  [+] Set SPN on regular user (IOE #3)" -Level SUCCESS
+            }
+        }
+        catch {
+            Write-Log "  [!] Error setting SPN: $_" -Level WARNING
+        }
         
         # =====================================================================
         # PHASE 4: IOE #4 - Primary users with SPN not supporting AES encryption
