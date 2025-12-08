@@ -46,7 +46,7 @@
 ##  - Keep all changes time-boxed and documented
 ##
 ## Author: Bob (bob@semperis.com)
-## Version: 1.0.2 (Phase 5 working: dMSA + user creation, KDS key required, Server 2022 compatible)
+## Version: 1.0.3 (Phase 1 fixed: DNS zone query by domain FQDN)
 ##
 ################################################################################
 
@@ -64,9 +64,12 @@ function Invoke-ModuleADInfrastructure {
     )
     
     $domain = $Environment.Domain
+    $dc = $Environment.DomainController
+    $config = $Environment.Config
     
     $domainDN = $domain.DistinguishedName
     $domainFQDN = $domain.DNSRoot
+    $dcFQDN = $dc.HostName
     
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
@@ -86,15 +89,14 @@ function Invoke-ModuleADInfrastructure {
         Write-Log "PHASE 1: Configure unsecured DNS zone (IOE #1)" -Level INFO
         
         try {
-            $dnsZones = Get-DnsServerZone -ErrorAction SilentlyContinue | Where-Object { $_.ZoneType -eq "Primary" -and $_.Name -notlike "*._tcp*" } | Select-Object -First 1
+            $dnsZone = Get-DnsServerZone -ComputerName $dcFQDN -ErrorAction SilentlyContinue | Where-Object { $_.ZoneName -eq $domainFQDN }
             
-            if ($dnsZones -and $dnsZones.Name) {
-                $zoneName = $dnsZones.Name
-                Set-DnsServerPrimaryZone -Name $zoneName -DynamicUpdate NonsecureAndSecure -ErrorAction SilentlyContinue
-                Write-Log "  [+] Set zone '$zoneName' to allow nonsecure dynamic updates (IOE #1)" -Level SUCCESS
+            if ($dnsZone) {
+                Set-DnsServerPrimaryZone -Name $dnsZone.ZoneName -ComputerName $dcFQDN -DynamicUpdate NonsecureAndSecure -ErrorAction SilentlyContinue
+                Write-Log "  [+] Set zone '$($dnsZone.ZoneName)' to allow nonsecure dynamic updates (IOE #1)" -Level SUCCESS
             }
             else {
-                Write-Log "  [*] No primary DNS zones found - skipping (IOE #1)" -Level INFO
+                Write-Log "  [*] Domain DNS zone not found - skipping (IOE #1)" -Level INFO
             }
         }
         catch {
