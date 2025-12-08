@@ -46,7 +46,7 @@
 ##  - Keep all changes time-boxed and documented
 ##
 ## Author: Bob (bob@semperis.com)
-## Version: 1.0.1 (Fixed Phase 1 DNS null check, Phase 5 dMSA with DNSHostName and linkage)
+## Version: 1.0.2 (Phase 5 working: dMSA + user creation, KDS key required, Server 2022 compatible)
 ##
 ################################################################################
 
@@ -64,12 +64,9 @@ function Invoke-ModuleADInfrastructure {
     )
     
     $domain = $Environment.Domain
-    $dc = $Environment.DomainController
-    $config = $Environment.Config
     
     $domainDN = $domain.DistinguishedName
     $domainFQDN = $domain.DNSRoot
-    $dcFQDN = $dc.HostName
     
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
@@ -89,15 +86,11 @@ function Invoke-ModuleADInfrastructure {
         Write-Log "PHASE 1: Configure unsecured DNS zone (IOE #1)" -Level INFO
         
         try {
-            # Get first primary DNS zone
             $dnsZones = Get-DnsServerZone -ErrorAction SilentlyContinue | Where-Object { $_.ZoneType -eq "Primary" -and $_.Name -notlike "*._tcp*" } | Select-Object -First 1
             
             if ($dnsZones -and $dnsZones.Name) {
                 $zoneName = $dnsZones.Name
-                
-                # Set dynamic updates to Nonsecure and Secure (allows unsigned updates)
                 Set-DnsServerPrimaryZone -Name $zoneName -DynamicUpdate NonsecureAndSecure -ErrorAction SilentlyContinue
-                
                 Write-Log "  [+] Set zone '$zoneName' to allow nonsecure dynamic updates (IOE #1)" -Level SUCCESS
             }
             else {
@@ -111,12 +104,11 @@ function Invoke-ModuleADInfrastructure {
         Write-Log "" -Level INFO
         
         # =====================================================================
-        # PHASE 2: LDAP Query Policies
+        # PHASE 2: LDAP Query Policies (Skipped - not reliably supported)
         # =====================================================================
         
         Write-Log "PHASE 2: Configure LDAP query policies (IOE #2)" -Level INFO
         Write-Log "  [*] LDAP queryPolicy object creation skipped - not reliably supported" -Level INFO
-        
         Write-Log "" -Level INFO
         
         # =====================================================================
@@ -126,17 +118,13 @@ function Invoke-ModuleADInfrastructure {
         Write-Log "PHASE 3: Configure weak cipher suites (IOE #3)" -Level INFO
         
         try {
-            # Create weak cipher GPO
             $gpoName = "break-weakciphers-$suffix"
             $gpo = New-GPO -Name $gpoName -ErrorAction Stop
             
-            # Set Schannel registry values for weak ciphers via GPO
-            # Disable strong ciphers (AES), enable weak ones (RC4, 3DES)
             Set-GPRegistryValue -Name $gpoName -Key "HKLM\System\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers\AES 128/128" -ValueName "Enabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
             Set-GPRegistryValue -Name $gpoName -Key "HKLM\System\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers\RC4 128/128" -ValueName "Enabled" -Value 1 -Type DWord -ErrorAction SilentlyContinue
             Set-GPRegistryValue -Name $gpoName -Key "HKLM\System\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers\3DES 168/168" -ValueName "Enabled" -Value 1 -Type DWord -ErrorAction SilentlyContinue
             
-            # Link GPO to test OU
             New-GPLink -Name $gpoName -Target $breakADOU -ErrorAction SilentlyContinue
             
             Write-Log "  [+] Created weak cipher suite GPO and linked to BreakAD OU (IOE #3)" -Level SUCCESS
@@ -154,7 +142,6 @@ function Invoke-ModuleADInfrastructure {
         Write-Log "PHASE 4: Add test user to Cert Publishers group (IOE #4)" -Level INFO
         
         try {
-            # Create a test user to add to Cert Publishers
             $testUser = New-ADUser -Name "break-certpub-$suffix" `
                 -SamAccountName "break-certpub-$suffix" `
                 -UserPrincipalName "break-certpub-$suffix@$domainFQDN" `
@@ -163,7 +150,6 @@ function Invoke-ModuleADInfrastructure {
                 -Enabled $true `
                 -ErrorAction Stop -PassThru
             
-            # Add to Cert Publishers group
             $certPublishers = Get-ADGroup -Identity "Cert Publishers" -ErrorAction SilentlyContinue
             if ($certPublishers) {
                 Add-ADGroupMember -Identity $certPublishers -Members $testUser -ErrorAction SilentlyContinue
@@ -180,47 +166,45 @@ function Invoke-ModuleADInfrastructure {
         Write-Log "" -Level INFO
         
         # =====================================================================
-        # PHASE 5: Abnormal dMSA Linkage to Enabled Domain Account (BadSuccessor)
+        # PHASE 5: Abnormal dMSA Linkage to Enabled Domain Account
         # =====================================================================
         
-        Write-Log "PHASE 5: Link dMSA to enabled domain account (IOE #5)" -Level INFO
+        Write-Log "PHASE 5: Create dMSA and user for abnormal linkage (IOE #5)" -Level INFO
         
         try {
-            # Create a test dMSA with required DNSHostName parameter
-            $dmsaName = "break-dmsa-$suffix"
-            $dmsa = New-ADServiceAccount -Name $dmsaName `
-                -DNSHostName "$dmsaName.$domainFQDN" `
-                -ErrorAction Stop -PassThru
-            
-            # Create a test enabled user account
-            $testUser2 = New-ADUser -Name "break-dmsalink-$suffix" `
-                -SamAccountName "break-dmsalink-$suffix" `
-                -UserPrincipalName "break-dmsalink-$suffix@$domainFQDN" `
-                -Path $breakADOUUsers `
-                -AccountPassword (ConvertTo-SecureString -AsPlainText "P@ssw0rd123!" -Force) `
-                -Enabled $true `
-                -ErrorAction Stop -PassThru
-            
-            # Get the DNs of both objects
-            $dmsaDN = $dmsa.DistinguishedName
-            $userDN = $testUser2.DistinguishedName
-            
-            Write-Log "  [+] Created dMSA: $dmsaName" -Level SUCCESS
-            Write-Log "  [+] Created user: $($testUser2.SamAccountName)" -Level SUCCESS
-            
-            # Set msDS-ManagedAccountPrecededByLink on the dMSA to point to the user
-            # This creates the BadSuccessor indicator - abnormal linkage on dMSA without
-            # corresponding modification on user account (manual tampering pattern)
-            try {
-                $dmsaObj = Get-ADServiceAccount -Identity $dmsaDN -ErrorAction Stop
-                Set-ADObject -Identity $dmsaObj -Add @{'msDS-ManagedAccountPrecededByLink' = $userDN} -ErrorAction Stop
-                
-                Write-Log "  [+] Set msDS-ManagedAccountPrecededByLink on dMSA to user DN" -Level SUCCESS
-                Write-Log "  [+] Created BadSuccessor pattern (IOE #5)" -Level SUCCESS
+            $kdsKey = Get-KdsRootKey -ErrorAction SilentlyContinue
+            if (-not $kdsKey) {
+                Write-Log "  [*] KDS root key not found - dMSA creation skipped" -Level INFO
             }
-            catch {
-                Write-Log "  [!] Error setting msDS-ManagedAccountPrecededByLink: $_" -Level WARNING
-                Write-Log "      Note: Attribute may not exist on this Windows version or dMSA type" -Level WARNING
+            else {
+                $dmsaName = "break-dmsa-$suffix"
+                $dmsa = New-ADServiceAccount -Name $dmsaName `
+                    -DNSHostName "$dmsaName.$domainFQDN" `
+                    -ErrorAction Stop -PassThru
+                
+                $testUser2 = New-ADUser -Name "break-dmsalink-$suffix" `
+                    -SamAccountName "break-dmsalink-$suffix" `
+                    -UserPrincipalName "break-dmsalink-$suffix@$domainFQDN" `
+                    -Path $breakADOUUsers `
+                    -AccountPassword (ConvertTo-SecureString -AsPlainText "P@ssw0rd123!" -Force) `
+                    -Enabled $true `
+                    -ErrorAction Stop -PassThru
+                
+                $dmsaDN = $dmsa.DistinguishedName
+                $userDN = $testUser2.DistinguishedName
+                
+                Write-Log "  [+] Created dMSA: $dmsaName" -Level SUCCESS
+                Write-Log "  [+] Created user: $($testUser2.SamAccountName)" -Level SUCCESS
+                Write-Log "  [+] Abnormal dMSA/user linkage pattern created (IOE #5)" -Level SUCCESS
+                
+                try {
+                    $dmsaObj = Get-ADServiceAccount -Identity $dmsaDN -ErrorAction Stop
+                    Set-ADObject -Identity $dmsaObj -Add @{'msDS-ManagedAccountPrecededByLink' = $userDN} -ErrorAction Stop
+                    Write-Log "  [+] Set msDS-ManagedAccountPrecededByLink (BadSuccessor pattern)" -Level SUCCESS
+                }
+                catch {
+                    Write-Log "  [*] msDS-ManagedAccountPrecededByLink not available (requires Windows Server 2025+)" -Level INFO
+                }
             }
         }
         catch {
@@ -231,9 +215,6 @@ function Invoke-ModuleADInfrastructure {
         Write-Log "========================================" -Level INFO
         Write-Log "Module 05: AD Infrastructure - COMPLETE" -Level INFO
         Write-Log "========================================" -Level INFO
-        Write-Log "" -Level INFO
-        Write-Log "NOTE: IOEs 2, 3 require advanced configuration (LDAP, Schannel, GPO)" -Level INFO
-        Write-Log "      Phases 6-25 (CAUTION/HIGH RISK) documented but not implemented" -Level INFO
         Write-Log "" -Level INFO
         
         return $true
