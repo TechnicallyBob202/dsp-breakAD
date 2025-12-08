@@ -64,8 +64,6 @@ function Invoke-ModuleADInfrastructure {
     )
     
     $domain = $Environment.Domain
-    $dc = $Environment.DomainController
-    $config = $Environment.Config
     
         try {
             # LDAP query policies stored as objects in Configuration partition
@@ -82,7 +80,6 @@ function Invoke-ModuleADInfrastructure {
         try {
             # Create weak cipher GPO
             $gpoName = "break-weakciphers-$suffix"
-            $gpo = New-GPO -Name $gpoName -ErrorAction Stop
             
             # Set Schannel registry values for weak ciphers via GPO
             # Disable strong ciphers (AES), enable weak ones (RC4, 3DES)
@@ -108,7 +105,6 @@ function Invoke-ModuleADInfrastructure {
         }
     $domainDN = $domain.DistinguishedName
     $domainFQDN = $domain.DNSRoot
-    $dcFQDN = $dc.HostName
     
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
@@ -210,10 +206,27 @@ function Invoke-ModuleADInfrastructure {
                 -Enabled $true `
                 -ErrorAction Stop -PassThru
             
-            # In practice, linking dMSA to a user account would be done via msDS-GroupManagedServiceAccountMembership
-            # or by modifying the service account's linked attributes
-            # For now, document the configuration
-            Write-Log "  [+] Created dMSA and test user for abnormal linkage (IOE #5)" -Level SUCCESS
+            # Get the DNs of both objects
+            $dmsaDN = $dmsa.DistinguishedName
+            $userDN = $testUser2.DistinguishedName
+            
+            Write-Log "  [+] Created dMSA: $dmsaName" -Level SUCCESS
+            Write-Log "  [+] Created user: $($testUser2.SamAccountName)" -Level SUCCESS
+            
+            # Set msDS-ManagedAccountPrecededByLink on the dMSA to point to the user
+            # This creates the BadSuccessor indicator - abnormal linkage on dMSA without
+            # corresponding modification on user account (manual tampering pattern)
+            try {
+                $dmsaObj = Get-ADServiceAccount -Identity $dmsaDN -ErrorAction Stop
+                Set-ADObject -Identity $dmsaObj -Add @{'msDS-ManagedAccountPrecededByLink' = $userDN} -ErrorAction Stop
+                
+                Write-Log "  [+] Set msDS-ManagedAccountPrecededByLink on dMSA to user DN" -Level SUCCESS
+                Write-Log "  [+] Created BadSuccessor pattern (IOE #5)" -Level SUCCESS
+            }
+            catch {
+                Write-Log "  [!] Error setting msDS-ManagedAccountPrecededByLink: $_" -Level WARNING
+                Write-Log "      Note: Attribute may not exist on this Windows version or dMSA type" -Level WARNING
+            }
         }
         catch {
             Write-Log "  [!] Error creating dMSA/user linkage: $_" -Level WARNING
