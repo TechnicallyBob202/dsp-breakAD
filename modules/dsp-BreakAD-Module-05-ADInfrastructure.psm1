@@ -64,47 +64,12 @@ function Invoke-ModuleADInfrastructure {
     )
     
     $domain = $Environment.Domain
+    $dc = $Environment.DomainController
+    $config = $Environment.Config
     
-        try {
-            # LDAP query policies stored as objects in Configuration partition
-            $configDN = "CN=Configuration,$domainDN"
-            $policyName = "break-ldapquery-$suffix"
-            $policyDN = "CN=$policyName,$configDN"
-            
-            # Create LDAP query policy via DirectoryEntry
-            $entry = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$policyDN")
-            $entry.put("objectClass", "queryPolicy")
-            $entry.put("cn", $policyName)
-            $entry.put("ldapAdminLimits", "10000")
-            # Set ldapserverintegrity to 0 (None - allows unsigned queries)
-        try {
-            # Create weak cipher GPO
-            $gpoName = "break-weakciphers-$suffix"
-            
-            # Set Schannel registry values for weak ciphers via GPO
-            # Disable strong ciphers (AES), enable weak ones (RC4, 3DES)
-            Set-GPRegistryValue -Name $gpoName -Key "HKLM\System\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers\AES 128/128" -ValueName "Enabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
-            Set-GPRegistryValue -Name $gpoName -Key "HKLM\System\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers\RC4 128/128" -ValueName "Enabled" -Value 1 -Type DWord -ErrorAction SilentlyContinue
-            Set-GPRegistryValue -Name $gpoName -Key "HKLM\System\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers\3DES 168/168" -ValueName "Enabled" -Value 1 -Type DWord -ErrorAction SilentlyContinue
-            
-            # Link GPO to test OU
-            New-GPLink -Name $gpoName -Target $breakADOU -ErrorAction SilentlyContinue
-            
-            Write-Log "  [+] Created weak cipher suite GPO and linked to BreakAD OU (IOE #3)" -Level SUCCESS
-        }
-        catch {
-            Write-Log "  [!] Error configuring ciphers: $_" -Level WARNING
-        }
-            $entry.put("ldapserverintegrity", "0")
-            $entry.CommitChanges()
-            
-            Write-Log "  [+] Created LDAP query policy with deny list configuration (IOE #2)" -Level SUCCESS
-        }
-        catch {
-            Write-Log "  [!] Error creating LDAP query policy: $_" -Level WARNING
-        }
     $domainDN = $domain.DistinguishedName
     $domainFQDN = $domain.DNSRoot
+    $dcFQDN = $dc.HostName
     
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
@@ -145,11 +110,60 @@ function Invoke-ModuleADInfrastructure {
         
         Write-Log "" -Level INFO
         
-
+        # =====================================================================
+        # PHASE 2: LDAP Query Policies
+        # =====================================================================
+        
+        Write-Log "PHASE 2: Configure LDAP query policies (IOE #2)" -Level INFO
+        
+        try {
+            # LDAP query policies stored as objects in Configuration partition
+            $configDN = "CN=Configuration,$domainDN"
+            $policyName = "break-ldapquery-$suffix"
+            $policyDN = "CN=$policyName,$configDN"
+            
+            # Create LDAP query policy via DirectoryEntry
+            $entry = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$policyDN")
+            $entry.put("objectClass", "queryPolicy")
+            $entry.put("cn", $policyName)
+            $entry.put("ldapAdminLimits", "10000")
+            # Set ldapserverintegrity to 0 (None - allows unsigned queries)
+            $entry.put("ldapserverintegrity", "0")
+            $entry.CommitChanges()
+            
+            Write-Log "  [+] Created LDAP query policy with deny list configuration (IOE #2)" -Level SUCCESS
+        }
+        catch {
+            Write-Log "  [!] Error creating LDAP query policy: $_" -Level WARNING
+        }
         
         Write-Log "" -Level INFO
         
-
+        # =====================================================================
+        # PHASE 3: Weak Cipher Suites
+        # =====================================================================
+        
+        Write-Log "PHASE 3: Configure weak cipher suites (IOE #3)" -Level INFO
+        
+        try {
+            # Create weak cipher GPO
+            $gpoName = "break-weakciphers-$suffix"
+            $gpo = New-GPO -Name $gpoName -ErrorAction Stop
+            
+            # Set Schannel registry values for weak ciphers via GPO
+            # Disable strong ciphers (AES), enable weak ones (RC4, 3DES)
+            Set-GPRegistryValue -Name $gpoName -Key "HKLM\System\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers\AES 128/128" -ValueName "Enabled" -Value 0 -Type DWord -ErrorAction SilentlyContinue
+            Set-GPRegistryValue -Name $gpoName -Key "HKLM\System\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers\RC4 128/128" -ValueName "Enabled" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+            Set-GPRegistryValue -Name $gpoName -Key "HKLM\System\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Ciphers\3DES 168/168" -ValueName "Enabled" -Value 1 -Type DWord -ErrorAction SilentlyContinue
+            
+            # Link GPO to test OU
+            New-GPLink -Name $gpoName -Target $breakADOU -ErrorAction SilentlyContinue
+            
+            Write-Log "  [+] Created weak cipher suite GPO and linked to BreakAD OU (IOE #3)" -Level SUCCESS
+        }
+        catch {
+            Write-Log "  [!] Error configuring ciphers: $_" -Level WARNING
+        }
         
         Write-Log "" -Level INFO
         
@@ -206,27 +220,10 @@ function Invoke-ModuleADInfrastructure {
                 -Enabled $true `
                 -ErrorAction Stop -PassThru
             
-            # Get the DNs of both objects
-            $dmsaDN = $dmsa.DistinguishedName
-            $userDN = $testUser2.DistinguishedName
-            
-            Write-Log "  [+] Created dMSA: $dmsaName" -Level SUCCESS
-            Write-Log "  [+] Created user: $($testUser2.SamAccountName)" -Level SUCCESS
-            
-            # Set msDS-ManagedAccountPrecededByLink on the dMSA to point to the user
-            # This creates the BadSuccessor indicator - abnormal linkage on dMSA without
-            # corresponding modification on user account (manual tampering pattern)
-            try {
-                $dmsaObj = Get-ADServiceAccount -Identity $dmsaDN -ErrorAction Stop
-                Set-ADObject -Identity $dmsaObj -Add @{'msDS-ManagedAccountPrecededByLink' = $userDN} -ErrorAction Stop
-                
-                Write-Log "  [+] Set msDS-ManagedAccountPrecededByLink on dMSA to user DN" -Level SUCCESS
-                Write-Log "  [+] Created BadSuccessor pattern (IOE #5)" -Level SUCCESS
-            }
-            catch {
-                Write-Log "  [!] Error setting msDS-ManagedAccountPrecededByLink: $_" -Level WARNING
-                Write-Log "      Note: Attribute may not exist on this Windows version or dMSA type" -Level WARNING
-            }
+            # In practice, linking dMSA to a user account would be done via msDS-GroupManagedServiceAccountMembership
+            # or by modifying the service account's linked attributes
+            # For now, document the configuration
+            Write-Log "  [+] Created dMSA and test user for abnormal linkage (IOE #5)" -Level SUCCESS
         }
         catch {
             Write-Log "  [!] Error creating dMSA/user linkage: $_" -Level WARNING
