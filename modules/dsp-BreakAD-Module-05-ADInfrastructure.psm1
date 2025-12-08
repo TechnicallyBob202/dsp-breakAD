@@ -46,7 +46,7 @@
 ##  - Keep all changes time-boxed and documented
 ##
 ## Author: Bob (bob@semperis.com)
-## Version: 1.0.0
+## Version: 1.0.1 (Fixed Phase 1 DNS null check, Phase 5 dMSA with DNSHostName and linkage)
 ##
 ################################################################################
 
@@ -92,7 +92,7 @@ function Invoke-ModuleADInfrastructure {
             # Get first primary DNS zone
             $dnsZones = Get-DnsServerZone -ErrorAction SilentlyContinue | Where-Object { $_.ZoneType -eq "Primary" -and $_.Name -notlike "*._tcp*" } | Select-Object -First 1
             
-            if ($dnsZones) {
+            if ($dnsZones -and $dnsZones.Name) {
                 $zoneName = $dnsZones.Name
                 
                 # Set dynamic updates to Nonsecure and Secure (allows unsigned updates)
@@ -115,27 +115,7 @@ function Invoke-ModuleADInfrastructure {
         # =====================================================================
         
         Write-Log "PHASE 2: Configure LDAP query policies (IOE #2)" -Level INFO
-        
-        try {
-            # LDAP query policies stored as objects in Configuration partition
-            $configDN = "CN=Configuration,$domainDN"
-            $policyName = "break-ldapquery-$suffix"
-            $policyDN = "CN=$policyName,$configDN"
-            
-            # Create LDAP query policy via DirectoryEntry
-            $entry = New-Object System.DirectoryServices.DirectoryEntry("LDAP://$policyDN")
-            $entry.put("objectClass", "queryPolicy")
-            $entry.put("cn", $policyName)
-            $entry.put("ldapAdminLimits", "10000")
-            # Set ldapserverintegrity to 0 (None - allows unsigned queries)
-            $entry.put("ldapserverintegrity", "0")
-            $entry.CommitChanges()
-            
-            Write-Log "  [+] Created LDAP query policy with deny list configuration (IOE #2)" -Level SUCCESS
-        }
-        catch {
-            Write-Log "  [!] Error creating LDAP query policy: $_" -Level WARNING
-        }
+        Write-Log "  [*] LDAP queryPolicy object creation skipped - not reliably supported" -Level INFO
         
         Write-Log "" -Level INFO
         
@@ -200,15 +180,16 @@ function Invoke-ModuleADInfrastructure {
         Write-Log "" -Level INFO
         
         # =====================================================================
-        # PHASE 5: Abnormal dMSA Linkage to Enabled Domain Account
+        # PHASE 5: Abnormal dMSA Linkage to Enabled Domain Account (BadSuccessor)
         # =====================================================================
         
         Write-Log "PHASE 5: Link dMSA to enabled domain account (IOE #5)" -Level INFO
         
         try {
-            # Create a test dMSA
+            # Create a test dMSA with required DNSHostName parameter
             $dmsaName = "break-dmsa-$suffix"
             $dmsa = New-ADServiceAccount -Name $dmsaName `
+                -DNSHostName "$dmsaName.$domainFQDN" `
                 -ErrorAction Stop -PassThru
             
             # Create a test enabled user account
@@ -220,10 +201,27 @@ function Invoke-ModuleADInfrastructure {
                 -Enabled $true `
                 -ErrorAction Stop -PassThru
             
-            # In practice, linking dMSA to a user account would be done via msDS-GroupManagedServiceAccountMembership
-            # or by modifying the service account's linked attributes
-            # For now, document the configuration
-            Write-Log "  [+] Created dMSA and test user for abnormal linkage (IOE #5)" -Level SUCCESS
+            # Get the DNs of both objects
+            $dmsaDN = $dmsa.DistinguishedName
+            $userDN = $testUser2.DistinguishedName
+            
+            Write-Log "  [+] Created dMSA: $dmsaName" -Level SUCCESS
+            Write-Log "  [+] Created user: $($testUser2.SamAccountName)" -Level SUCCESS
+            
+            # Set msDS-ManagedAccountPrecededByLink on the dMSA to point to the user
+            # This creates the BadSuccessor indicator - abnormal linkage on dMSA without
+            # corresponding modification on user account (manual tampering pattern)
+            try {
+                $dmsaObj = Get-ADServiceAccount -Identity $dmsaDN -ErrorAction Stop
+                Set-ADObject -Identity $dmsaObj -Add @{'msDS-ManagedAccountPrecededByLink' = $userDN} -ErrorAction Stop
+                
+                Write-Log "  [+] Set msDS-ManagedAccountPrecededByLink on dMSA to user DN" -Level SUCCESS
+                Write-Log "  [+] Created BadSuccessor pattern (IOE #5)" -Level SUCCESS
+            }
+            catch {
+                Write-Log "  [!] Error setting msDS-ManagedAccountPrecededByLink: $_" -Level WARNING
+                Write-Log "      Note: Attribute may not exist on this Windows version or dMSA type" -Level WARNING
+            }
         }
         catch {
             Write-Log "  [!] Error creating dMSA/user linkage: $_" -Level WARNING
