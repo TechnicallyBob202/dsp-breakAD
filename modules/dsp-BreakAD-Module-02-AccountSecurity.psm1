@@ -2,10 +2,12 @@
 ##
 ## dsp-BreakAD-Module-02-AccountSecurity.psm1
 ##
+##  - All test accounts created in BreakAD\Users OU
+##  - Test computers created in BreakAD\Computers OU
 ## Purpose: Introduce Account Security misconfigurations to lower DSP score
 ## Targets: Account Security IOE category in DSP
 ##
-## IOEs Targeted (15):
+## IOEs Targeted (18):
 ##  1. Unprivileged accounts with adminCount=1
 ##  2. User accounts that store passwords with reversible encryption
 ##  3. User accounts that use DES encryption
@@ -21,12 +23,11 @@
 ## 13. Computer accounts in privileged groups
 ## 14. Schema Admins group is not empty
 ## 15. AD objects created within the last 10 days
+## 16. Admins with Kerberos pre-authentication disabled
+## 17. Distributed COM Users group is not empty
+## 18. Performance Log Users group is not empty
 ##
 ## Design Philosophy:
-##  - All test accounts created in BreakAD\Users OU
-##  - Test computers created in BreakAD\Computers OU
-##  - Group membership changes are temporary (can be reverted)
-##  - Idempotent: safe to run multiple times
 ##
 ## Author: Bob (bob@semperis.com)
 ## Version: 1.0.0
@@ -47,12 +48,9 @@ function Invoke-ModuleAccountSecurity {
     )
     
     $domain = $Environment.Domain
-    $dc = $Environment.DomainController
-    $config = $Environment.Config
     
     $domainDN = $domain.DistinguishedName
     $domainFQDN = $domain.DNSRoot
-    $dcFQDN = $dc.HostName
     
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
@@ -166,7 +164,7 @@ function Invoke-ModuleAccountSecurity {
         
 
         
-        # IOE #13: Password never expires
+        # IOE #11: Password never expires
         try {
             $acct = New-ADUser -Name "break-neverexp-$suffix" `
                 -SamAccountName "break-neverexp-$suffix" `
@@ -185,7 +183,7 @@ function Invoke-ModuleAccountSecurity {
             Write-Log "  [!] Error creating never-expire account: $_" -Level WARNING
         }
         
-        # IOE #12: Old password (set pwdLastSet = -1 to force recomputation)
+        # IOE #10: Old password (set pwdLastSet = -1 to force recomputation)
         try {
             $acct = New-ADUser -Name "break-oldpwd-$suffix" `
                 -SamAccountName "break-oldpwd-$suffix" `
@@ -208,7 +206,7 @@ function Invoke-ModuleAccountSecurity {
         Write-Log "" -Level INFO
         
         # =====================================================================
-        # PHASE 2: Create privileged test account (IOE #6, #7)
+        # PHASE 2: Create privileged test account with dangerous settings
         # =====================================================================
         
         Write-Log "PHASE 2: Create privileged test account with dangerous settings" -Level INFO
@@ -222,9 +220,6 @@ function Invoke-ModuleAccountSecurity {
                 -Enabled $true `
                 -ErrorAction Stop -PassThru
             
-            # IOE #7: Password never expires on privileged account
-            Set-ADUser -Identity $privAcct -PasswordNeverExpires $true -ErrorAction SilentlyContinue
-            
             Write-Log "  [+] Created privileged test account: $($privAcct.SamAccountName)" -Level SUCCESS
         }
         catch {
@@ -235,43 +230,43 @@ function Invoke-ModuleAccountSecurity {
         Write-Log "" -Level INFO
         
         # =====================================================================
-        # PHASE 3: Group membership changes (IOE #14, #15, #16)
+        # PHASE 3: Modify privileged group memberships
         # =====================================================================
         
         Write-Log "PHASE 3: Modify privileged group memberships" -Level INFO
         
-        # IOE #14 & #16: Add test account to Schema Admins
+        # IOE #14: Add test account to Schema Admins (IOE #14, #16)
         try {
             $schemaAdmins = Get-ADGroup -Identity "Schema Admins" -ErrorAction Stop
             $testUser = $testAccounts[0]
             
             Add-ADGroupMember -Identity $schemaAdmins -Members $testUser -ErrorAction SilentlyContinue
-            Write-Log "  [+] Added $($testUser.SamAccountName) to Schema Admins (IOE #14, #16)" -Level SUCCESS
+            Write-Log "  [+] Added $($testUser.SamAccountName) to Schema Admins (IOE #14)" -Level SUCCESS
         }
         catch {
             Write-Log "  [!] Error adding to Schema Admins: $_" -Level WARNING
         }
         
-        # IOE #14: Add test account to Domain Admins
+        # IOE #12: Add test account to Domain Admins
         try {
             $domainAdmins = Get-ADGroup -Identity "Domain Admins" -ErrorAction Stop
             $testUser = $testAccounts[1]
             
             Add-ADGroupMember -Identity $domainAdmins -Members $testUser -ErrorAction SilentlyContinue
-            Write-Log "  [+] Added $($testUser.SamAccountName) to Domain Admins (IOE #14)" -Level SUCCESS
+            Write-Log "  [+] Added $($testUser.SamAccountName) to Domain Admins (IOE #12)" -Level SUCCESS
         }
         catch {
             Write-Log "  [!] Error adding to Domain Admins: $_" -Level WARNING
         }
         
-        # IOE #15: Create test computer and add to Domain Admins
+        # IOE #13: Create test computer and add to Domain Admins
         try {
             $compAcct = New-ADComputer -Name "break-comp-$suffix" `
                 -Path $breakADOUComputers `
                 -ErrorAction Stop -PassThru
             
             Add-ADGroupMember -Identity "Domain Admins" -Members $compAcct -ErrorAction SilentlyContinue
-            Write-Log "  [+] Created computer and added to Domain Admins: $($compAcct.Name) (IOE #15)" -Level SUCCESS
+            Write-Log "  [+] Created computer and added to Domain Admins: $($compAcct.Name) (IOE #13)" -Level SUCCESS
         }
         catch {
             Write-Log "  [!] Error creating computer in privileged group: $_" -Level WARNING
@@ -290,13 +285,84 @@ function Invoke-ModuleAccountSecurity {
             Write-Log "  [!] Error adding to DnsAdmins: $_" -Level WARNING
         }
         
+        # IOE #17: Add test account to Distributed COM Users
+        try {
+            $dcomUsers = Get-ADGroup -Identity "Distributed COM Users" -ErrorAction SilentlyContinue
+            if ($dcomUsers) {
+                $testUser = $testAccounts[3]
+                Add-ADGroupMember -Identity $dcomUsers -Members $testUser -ErrorAction SilentlyContinue
+                Write-Log "  [+] Added $($testUser.SamAccountName) to Distributed COM Users (IOE #17)" -Level SUCCESS
+            }
+        }
+        catch {
+            Write-Log "  [!] Error adding to Distributed COM Users: $_" -Level WARNING
+        }
+        
+        # IOE #18: Add test account to Performance Log Users
+        try {
+            $perfLogUsers = Get-ADGroup -Identity "Performance Log Users" -ErrorAction SilentlyContinue
+            if ($perfLogUsers) {
+                $testUser = $testAccounts[4]
+                Add-ADGroupMember -Identity $perfLogUsers -Members $testUser -ErrorAction SilentlyContinue
+                Write-Log "  [+] Added $($testUser.SamAccountName) to Performance Log Users (IOE #18)" -Level SUCCESS
+            }
+        }
+        catch {
+            Write-Log "  [!] Error adding to Performance Log Users: $_" -Level WARNING
+        }
+        
+
+        
+        Write-Log "PHASE 4: Create Fine-Grained Password Policy" -Level INFO
+        # IOE #17: Add test account to Distributed COM Users
+        try {
+            $dcomUsers = Get-ADGroup -Identity "Distributed COM Users" -ErrorAction SilentlyContinue
+            if ($dcomUsers) {
+                $testUser = $testAccounts[3]
+                Add-ADGroupMember -Identity $dcomUsers -Members $testUser -ErrorAction SilentlyContinue
+                Write-Log "  [+] Added $($testUser.SamAccountName) to Distributed COM Users (IOE #17)" -Level SUCCESS
+            }
+        }
+        catch {
+            Write-Log "  [!] Error adding to Distributed COM Users: $_" -Level WARNING
+        }
+        
+        # IOE #18: Add test account to Performance Log Users
+        try {
+            $perfLogUsers = Get-ADGroup -Identity "Performance Log Users" -ErrorAction SilentlyContinue
+            if ($perfLogUsers) {
+                $testUser = $testAccounts[4]
+                Add-ADGroupMember -Identity $perfLogUsers -Members $testUser -ErrorAction SilentlyContinue
+                Write-Log "  [+] Added $($testUser.SamAccountName) to Performance Log Users (IOE #18)" -Level SUCCESS
+            }
+        }
+        catch {
+            Write-Log "  [!] Error adding to Performance Log Users: $_" -Level WARNING
+        }
+        
+        
+        try {
+            $psoName = "break-weakpso-$suffix"
+            $pso = New-ADFineGrainedPasswordPolicy -Name $psoName `
+                -Precedence 100 `
+                -MinPasswordLength 4 `
+                -PasswordHistoryCount 1 `
+                -MaxPasswordAge (New-TimeSpan -Days 365) `
+                -ErrorAction Stop
+            
+            if ($privAcct) {
+                Add-ADFineGrainedPasswordPolicySubject -Identity $pso -Subjects $privAcct -ErrorAction SilentlyContinue
+                Write-Log "  [+] Created weak PSO and applied to privileged account (IOE #8)" -Level SUCCESS
+            }
+            else {
+                Write-Log "  [!] Weak PSO created but no privileged account to apply it to" -Level WARNING
+            }
+        }
+        catch {
+            Write-Log "  [!] Error creating PSO: $_" -Level WARNING
+        }
+        
         Write-Log "" -Level INFO
-        
-
-        
-
-        
-
         Write-Log "========================================" -Level INFO
         Write-Log "Module 02: Account Security - COMPLETE" -Level INFO
         Write-Log "========================================" -Level INFO

@@ -48,12 +48,9 @@ function Invoke-ModuleKerberosSecurity {
     )
     
     $domain = $Environment.Domain
-    $dc = $Environment.DomainController
-    $config = $Environment.Config
     
     $domainDN = $domain.DistinguishedName
     $domainFQDN = $domain.DNSRoot
-    $dcFQDN = $dc.HostName
     
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO

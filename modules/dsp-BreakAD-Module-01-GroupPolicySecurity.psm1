@@ -44,12 +44,9 @@ function Invoke-ModuleGroupPolicySecurity {
     )
     
     $domain = $Environment.Domain
-    $dc = $Environment.DomainController
-    $config = $Environment.Config
     
     $domainDN = $domain.DistinguishedName
     $domainFQDN = $domain.DNSRoot
-    $dcFQDN = $dc.HostName
     
     Write-Log "" -Level INFO
     Write-Log "========================================" -Level INFO
@@ -82,25 +79,14 @@ function Invoke-ModuleGroupPolicySecurity {
         Write-Log "PHASE 2: Innocuous changes to Default Domain/Controllers Policies" -Level INFO
         Write-Log "  [*] IOE: Changes to Default Domain Policy/Controllers Policy" -Level INFO
         
-        try {
-            # Modify Default Domain Policy with innocuous change
-            $defDomainPol = Get-GPO -Name "Default Domain Policy" -ErrorAction Stop
-            
-            # Set a harmless setting (e.g., audit policy)
-            # This keeps the IOE "lit" without breaking anything
-            Set-GPRegistryValue -Name "Default Domain Policy" `
+
                 -Key "HKLM\System\CurrentControlSet\Control\Lsa" `
                 -ValueName "SubmitControl" `
                 -Value 1 `
                 -Type DWORD `
                 -ErrorAction Stop | Out-Null
             
-            Write-Log "    [+] Modified Default Domain Policy" -Level SUCCESS
-            
-            # Modify Default Domain Controllers Policy
-            $defDCPol = Get-GPO -Name "Default Domain Controllers Policy" -ErrorAction Stop
-            
-            Set-GPRegistryValue -Name "Default Domain Controllers Policy" `
+
                 -Key "HKLM\System\CurrentControlSet\Control\Lsa" `
                 -ValueName "SubmitControl" `
                 -Value 1 `
@@ -533,10 +519,7 @@ SeTakeOwnershipPrivilege = *S-1-5-20,$userSID
             } -ErrorAction SilentlyContinue | Out-Null
             
             Write-Log "  [+] Group Policy update forced" -Level SUCCESS
-        }
-        catch {
-            Write-Log "  [!] Error forcing gpupdate: $_" -Level WARNING
-        }
+
         
         Write-Log "" -Level INFO
         Write-Log "========================================" -Level INFO
@@ -547,7 +530,7 @@ SeTakeOwnershipPrivilege = *S-1-5-20,$userSID
         return $true
     }
     catch {
-        Write-Log "Module 03 Error: $_" -Level ERROR
+        Write-Log "Module 01 Error: $_" -Level ERROR
         return $false
     }
 }
